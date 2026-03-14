@@ -396,6 +396,8 @@
     <div class="flow-chip" style="border-color:var(--accent);color:var(--accent);">Prediction Engine</div>
     <span class="flow-arrow">&rarr;</span>
     <div class="flow-chip" style="border-color:var(--accent3);color:var(--accent3);">Web UI</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-chip" style="border-color:var(--accent);color:var(--accent);">Team Deep Dive</div>
   </div>
 </div>
 
@@ -738,6 +740,7 @@ for _ in range(10_000):
               <h4>Web Pages</h4>
               <p><code>/</code> — League list<br>
               <code>/league/{id}</code> — Standings + predictions<br>
+              <code>/league/{id}/team/{id}</code> — Team deep dive<br>
               <code>/admin/import</code> — CSV upload form</p>
               <span class="tag tag-html">web/routes.py</span>
             </div>
@@ -771,6 +774,128 @@ def _top_positions(pos_dist, n=3):
 {% for idx, prob in team.pos_dist | top_positions %}
   P({{ idx + 1 }}) {{ (prob * 100)|round(0)|int }}%
 {% endfor %}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage-connector"><div class="arrow">&#8595;</div></div>
+
+<!-- ─── STAGE 7: TEAM DEEP DIVE ─── -->
+<div class="stage">
+  <div class="stage-card" onclick="toggleCard(this)">
+    <div class="stage-header">
+      <div class="stage-icon" style="background:rgba(108,99,255,0.12);color:var(--accent);">&#128270;</div>
+      <div>
+        <div class="stage-title">7. Team Deep Dive</div>
+        <div class="stage-subtitle">Per-fixture prediction breakdowns for any team</div>
+      </div>
+      <div class="stage-expand">&#9660;</div>
+    </div>
+    <div class="stage-body">
+      <div class="stage-content">
+        <div class="simple-explain">
+          Click any team name on the league page to open its <strong>deep dive</strong>. This page answers the question <em>"why does the model predict this?"</em> by breaking the prediction down to individual fixtures. For each remaining match you can see: how many goals the model expects each side to score, the probability of a win, draw, or loss shown as a colour-coded bar, the most likely scorelines, and an expandable grid showing the probability of every possible score. At the top, attack and defence strength bars show how the team compares to the league average, and an outlook section summarises expected remaining points and highlights the toughest and easiest fixtures.
+        </div>
+
+        <div class="tech-details">
+          <div class="info-grid">
+            <div class="info-block">
+              <h4>Prediction Service</h4>
+              <p><code>predict_fixtures()</code> takes finished matches, scheduled matches, a team ID, and a team map. Reuses <code>StrengthCalculator</code> and <code>DixonColesCorrection</code> from the engine to compute per-fixture predictions in one pass.</p>
+              <span class="tag tag-py">fixture_prediction.py</span>
+            </div>
+            <div class="info-block">
+              <h4>Strength Profile</h4>
+              <p>Attack and defence strengths shown as animated horizontal bars relative to 1.0 (league average). Green = above average, red = below. For defence, <em>lower is better</em> (fewer goals conceded).</p>
+            </div>
+            <div class="info-block">
+              <h4>W/D/L Bar</h4>
+              <p>A stacked flex bar with three colour-coded segments (green/amber/red). The "Win", "Draw", "Loss" labels below use <strong>matching proportional widths</strong> so each label sits directly beneath its segment.</p>
+            </div>
+            <div class="info-block">
+              <h4>Score Heatmap</h4>
+              <p>6&times;6 CSS grid showing the probability of each scoreline. Cell backgrounds use <code>rgba(21, 101, 192, prob &times; 8)</code> for intensity. Top scorelines get a gold outline. Toggle open/closed via Alpine.js.</p>
+            </div>
+            <div class="info-block">
+              <h4>Aggregate Outlook</h4>
+              <p>Expected remaining points = &Sigma;(3 &middot; p<sub>win</sub> + 1 &middot; p<sub>draw</sub>) across all remaining fixtures. Toughest fixture = lowest p<sub>win</sub>; easiest = highest.</p>
+            </div>
+            <div class="info-block">
+              <h4>Page Sections</h4>
+              <p>Hero header (record + form + ELO) &rarr; Prediction summary (Chart.js) &rarr; Strength profile &rarr; Aggregate outlook &rarr; Fixture cards &rarr; Recent results table. Graceful empty states throughout.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="expert-details">
+          <p style="color:var(--text-dim);font-size:0.85rem;">The <code>predict_fixtures()</code> service decouples per-fixture prediction from the web layer. It returns a <code>FixturePredictionResult</code> containing the team's strength profile, league average goals, and a list of <code>FixturePrediction</code> objects:</p>
+<pre><code>@dataclass
+class FixturePrediction:
+    opponent_id: str
+    opponent_name: str
+    is_home: bool
+    played_at: datetime
+    lambda_team: float          # expected goals for subject team
+    lambda_opponent: float      # expected goals for opponent
+    p_win: float
+    p_draw: float
+    p_loss: float
+    score_matrix: list[list[float]]           # 6x6 truncated, plain Python lists
+    top_scores: list[tuple[int, int, float]]  # (home_goals, away_goals, prob) top 5
+
+@dataclass
+class FixturePredictionResult:
+    team_strength: TeamStrengthProfile   # attack &amp; defence floats
+    league_avg_goals: float
+    fixtures: list[FixturePrediction]
+    expected_remaining_points: float     # &Sigma; 3*p_win + 1*p_draw</code></pre>
+
+          <p style="color:var(--text-dim);font-size:0.85rem;margin-top:16px;">The pipeline for each fixture mirrors the main simulation engine but stops before Monte Carlo:</p>
+<pre><code># Per-fixture pipeline (from fixture_prediction.py)
+calc = StrengthCalculator(finished_match_records)
+dc = DixonColesCorrection()
+
+for match in scheduled_for_team:
+    lambda_h, lambda_a = calc.compute_lambda(home_id, away_id, league_avg)
+    matrix = calc.score_probability_matrix(lambda_h, lambda_a)  # 11x11
+    matrix = dc.apply(matrix, lambda_h, lambda_a)               # corrected
+    p_home, p_draw, p_away = dc.outcome_probabilities(matrix)
+
+    # Truncate to 6x6 for the heatmap (keeps &gt;99% of probability mass)
+    score_matrix = matrix[:6, :6].tolist()
+
+    # Top 5 most likely scorelines from full matrix
+    top_scores = sorted(all_cells, key=prob, reverse=True)[:5]</code></pre>
+
+          <p style="color:var(--text-dim);font-size:0.85rem;margin-top:16px;"><strong>W/D/L label alignment:</strong> The label row uses a matching flex layout where each <code>&lt;span&gt;</code> gets the same percentage width as its bar segment above. This ensures "Win", "Draw", and "Loss" always centre under the correct colour, regardless of the probability split:</p>
+<pre><code>&lt;!-- Bar segments --&gt;
+&lt;div class="wdl-bar"&gt;
+  &lt;div class="wdl-win"  style="width: {{ p_win  * 100 }}%"&gt;45%&lt;/div&gt;
+  &lt;div class="wdl-draw" style="width: {{ p_draw * 100 }}%"&gt;28%&lt;/div&gt;
+  &lt;div class="wdl-loss" style="width: {{ p_loss * 100 }}%"&gt;27%&lt;/div&gt;
+&lt;/div&gt;
+&lt;!-- Labels with matching widths --&gt;
+&lt;div style="display:flex"&gt;
+  &lt;span style="width: {{ p_win  * 100 }}%; text-align:center"&gt;Win&lt;/span&gt;
+  &lt;span style="width: {{ p_draw * 100 }}%; text-align:center"&gt;Draw&lt;/span&gt;
+  &lt;span style="width: {{ p_loss * 100 }}%; text-align:center"&gt;Loss&lt;/span&gt;
+&lt;/div&gt;</code></pre>
+
+          <p style="color:var(--text-dim);font-size:0.85rem;margin-top:16px;"><strong>Heatmap rendering:</strong> Pure CSS grid (no canvas/JS). The 7&times;7 grid includes a header row and column for goal counts 0–5. Cell intensity is computed server-side by Jinja2:</p>
+<pre><code>&lt;div class="score-heatmap"&gt;  &lt;!-- grid-template-columns: repeat(7, 1fr) --&gt;
+  {% for i in range(6) %}
+    {% for j in range(6) %}
+      &lt;div class="heatmap-cell{% if is_top_score %} heatmap-cell--top{% endif %}"
+           style="background: rgba(21, 101, 192, {{ cell_prob * 8 }})"&gt;
+        {{ (cell_prob * 100)|round(1) }}
+      &lt;/div&gt;
+    {% endfor %}
+  {% endfor %}
+&lt;/div&gt;</code></pre>
+
+          <p style="color:var(--text-dim);font-size:0.85rem;margin-top:16px;"><strong>Route handler</strong> (<code>GET /league/{league_id}/team/{team_id}</code>): validates both league and team (404 if missing or mismatched league), loads <code>TeamSeason</code> for the hero stats, calls <code>predict_fixtures()</code>, loads the latest <code>Prediction</code> for the position chart, and extracts the last 5 finished matches involving the team for the recent results section.</p>
         </div>
       </div>
     </div>

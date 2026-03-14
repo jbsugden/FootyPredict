@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from predictor.db.models import League, Prediction, Team
+from predictor.db.models import League, Match, MatchStatus, Prediction, Team, TeamSeason
 
 
 def _uuid() -> str:
@@ -143,6 +143,117 @@ class TestLeagueDetailPage:
         assert response.status_code == 200
         assert "thenpl.co.uk" in response.text
         assert "FA Full Time" not in response.text
+
+
+class TestTeamDetailPage:
+    @pytest.mark.asyncio
+    async def test_returns_200_with_team_name(
+        self,
+        async_client: AsyncClient,
+        sample_league: League,
+        sample_teams: list[Team],
+        sample_team_seasons,
+        sample_matches,
+    ) -> None:
+        team = sample_teams[0]
+        response = await async_client.get(
+            f"/league/{sample_league.id}/team/{team.id}"
+        )
+        assert response.status_code == 200
+        assert team.name in response.text
+
+    @pytest.mark.asyncio
+    async def test_returns_404_for_invalid_team(
+        self, async_client: AsyncClient, sample_league: League
+    ) -> None:
+        response = await async_client.get(
+            f"/league/{sample_league.id}/team/{_uuid()}"
+        )
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_returns_404_for_invalid_league(
+        self, async_client: AsyncClient, sample_teams: list[Team]
+    ) -> None:
+        response = await async_client.get(
+            f"/league/{_uuid()}/team/{sample_teams[0].id}"
+        )
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_renders_fixture_cards_with_scheduled_matches(
+        self,
+        async_client: AsyncClient,
+        db_session,
+        sample_league: League,
+        sample_teams: list[Team],
+        sample_team_seasons,
+        sample_matches,
+    ) -> None:
+        """Add a scheduled match and verify fixture card renders."""
+        team_a, team_b = sample_teams[0], sample_teams[1]
+        scheduled = Match(
+            id=_uuid(),
+            league_id=sample_league.id,
+            season="2024-25",
+            matchday=10,
+            home_team_id=team_a.id,
+            away_team_id=team_b.id,
+            status=MatchStatus.SCHEDULED,
+            played_at=_now(),
+        )
+        db_session.add(scheduled)
+        await db_session.flush()
+
+        response = await async_client.get(
+            f"/league/{sample_league.id}/team/{team_a.id}"
+        )
+        assert response.status_code == 200
+        # Should contain the opponent name in a fixture card
+        assert team_b.name in response.text
+        # Should contain W/D/L bar
+        assert "wdl-bar" in response.text
+
+    @pytest.mark.asyncio
+    async def test_renders_position_distribution_with_prediction(
+        self,
+        async_client: AsyncClient,
+        db_session,
+        sample_league: League,
+        sample_teams: list[Team],
+        sample_team_seasons,
+        sample_matches,
+    ) -> None:
+        """Verify position distribution section appears when prediction exists."""
+        fake_results = {
+            team.id: {
+                "mean_pos": float(i + 1),
+                "mean_points": float(60 - i * 5),
+                "pos_dist": [
+                    0.7 if j == i else 0.1 / max(len(sample_teams) - 1, 1)
+                    for j in range(len(sample_teams))
+                ],
+            }
+            for i, team in enumerate(sample_teams)
+        }
+        prediction = Prediction(
+            id=_uuid(),
+            league_id=sample_league.id,
+            season=sample_league.current_season,
+            generated_at=_now(),
+            simulation_runs=10_000,
+            results=fake_results,
+        )
+        db_session.add(prediction)
+        await db_session.flush()
+
+        team = sample_teams[0]
+        response = await async_client.get(
+            f"/league/{sample_league.id}/team/{team.id}"
+        )
+        assert response.status_code == 200
+        assert "Prediction Summary" in response.text
+        assert "Mean Position" in response.text
 
 
 class TestAdminImportPage:

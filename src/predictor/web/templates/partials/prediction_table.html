@@ -22,7 +22,7 @@
       {% for team in predicted_table %}
       <tr>
         <td>{{ "%.1f"|format(team.mean_pos) }}</td>
-        <td><strong>{{ team.team_name }}</strong></td>
+        <td><strong><a href="/league/{{ league.id }}/team/{{ team.team_id }}">{{ team.team_name }}</a></strong></td>
         <td>{{ "%.1f"|format(team.mean_points) }}</td>
         <td class="pos-prob-cell">
           <!--

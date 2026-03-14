@@ -10,6 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from predictor.db.models import Match, MatchStatus
 
 
+def previous_season(current: str) -> str:
+    """Derive the previous season string from the current one.
+
+    Example: ``"2024-25"`` → ``"2023-24"``.
+    """
+    start_year = int(current.split("-")[0])
+    end_suffix = f"{start_year % 100:02d}"
+    return f"{start_year - 1}-{end_suffix}"
+
+
 class MatchRepository:
     """Data-access layer for :class:`~predictor.db.models.Match` records.
 
@@ -88,6 +98,30 @@ class MatchRepository:
                 Match.league_id == league_id,
                 Match.season == season,
                 Match.status == MatchStatus.SCHEDULED,
+            )
+            .order_by(Match.played_at)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_finished_multi_season(
+        self, league_id: str, seasons: list[str]
+    ) -> list[Match]:
+        """Return finished matches across multiple seasons.
+
+        Args:
+            league_id: UUID string of the league.
+            seasons: List of season strings, e.g. ``['2023-24', '2024-25']``.
+
+        Returns:
+            List of finished :class:`Match` instances ordered by ``played_at``.
+        """
+        stmt = (
+            select(Match)
+            .where(
+                Match.league_id == league_id,
+                Match.season.in_(seasons),
+                Match.status == MatchStatus.FINISHED,
             )
             .order_by(Match.played_at)
         )

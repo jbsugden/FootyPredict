@@ -8,11 +8,8 @@ import numpy as np
 import pytest
 
 from predictor.engine.poisson import (
-    WEIGHT_MID,
-    WEIGHT_OLD,
-    WEIGHT_RECENT,
-    WEEKS_MID,
-    WEEKS_RECENT,
+    DECAY_HALF_LIFE_WEEKS,
+    SHRINKAGE_K,
     MatchRecord,
     StrengthCalculator,
     TeamStrengths,
@@ -51,21 +48,56 @@ def _make_match(
 
 
 class TestGetWeight:
-    def test_recent_match_gets_full_weight(self) -> None:
-        played_at = _now() - timedelta(weeks=1)
-        assert _get_weight(played_at) == WEIGHT_RECENT
+    def test_weight_is_one_for_just_played(self) -> None:
+        played_at = _now()
+        assert _get_weight(played_at) == pytest.approx(1.0)
 
-    def test_match_at_boundary_recent_gets_full_weight(self) -> None:
-        played_at = _now() - timedelta(weeks=WEEKS_RECENT)
-        assert _get_weight(played_at) == WEIGHT_RECENT
+    def test_weight_at_half_life_is_half(self) -> None:
+        played_at = _now() - timedelta(weeks=DECAY_HALF_LIFE_WEEKS)
+        assert _get_weight(played_at) == pytest.approx(0.5, abs=0.01)
 
-    def test_match_between_6_and_12_weeks_gets_mid_weight(self) -> None:
-        played_at = _now() - timedelta(weeks=9)
-        assert _get_weight(played_at) == WEIGHT_MID
+    def test_weight_decreases_monotonically(self) -> None:
+        w5 = _get_weight(_now() - timedelta(weeks=5))
+        w10 = _get_weight(_now() - timedelta(weeks=10))
+        w20 = _get_weight(_now() - timedelta(weeks=20))
+        assert w5 > w10 > w20
 
-    def test_match_older_than_12_weeks_gets_old_weight(self) -> None:
-        played_at = _now() - timedelta(weeks=20)
-        assert _get_weight(played_at) == WEIGHT_OLD
+    def test_old_match_has_small_positive_weight(self) -> None:
+        w = _get_weight(_now() - timedelta(weeks=30))
+        assert 0 < w < 0.2
+
+
+# ---------------------------------------------------------------------------
+# Shrinkage tests
+# ---------------------------------------------------------------------------
+
+
+class TestShrinkage:
+    def test_small_sample_shrinks_toward_average(self) -> None:
+        """With only 2-3 matches, extreme raw values should be pulled toward 1.0."""
+        matches = [_make_match("A", "B", 5, 0) for _ in range(2)]
+        calc = StrengthCalculator(matches)
+        strengths = calc.compute_strengths()
+        # A's raw attack would be very high; shrinkage should pull it closer to 1.0
+        # but still above 1.0
+        assert 1.0 < strengths["A"].attack < 2.5
+
+    def test_large_sample_preserves_signal(self) -> None:
+        """With 20+ matches, values should be close to raw (little shrinkage)."""
+        matches = [_make_match("A", "B", 4, 1) for _ in range(25)]
+        calc = StrengthCalculator(matches)
+        strengths = calc.compute_strengths()
+        # With many matches, attack should be well above 1.0
+        assert strengths["A"].attack > 1.3
+
+    def test_shrinkage_never_flips_direction(self) -> None:
+        """Raw attack > 1.0 should always give adjusted attack > 1.0."""
+        for n_matches in [2, 5, 10, 20]:
+            matches = [_make_match("A", "B", 3, 1) for _ in range(n_matches)]
+            calc = StrengthCalculator(matches)
+            strengths = calc.compute_strengths()
+            assert strengths["A"].attack > 1.0
+            assert strengths["B"].attack < 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +134,6 @@ class TestStrengthCalculator:
         matches = [_make_match("A", "B", 4, 1) for _ in range(10)]
         calc = StrengthCalculator(matches)
         strengths = calc.compute_strengths()
-        # B scores 1 per game against A's above-average concession; B's defence is < 1
-        # when we look at how much B concedes (=4 per game, above average)
         # B's attack (goals scored) = 1 per game (below average) => attack < 1
         assert strengths["B"].attack < 1.0
 

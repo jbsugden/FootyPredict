@@ -1,0 +1,106 @@
+<!--
+  Partial: fixture_card.html
+  Renders a single fixture prediction card.
+
+  Context variables expected:
+    fixture   — FixturePrediction object
+    team      — Team object (the subject team)
+    team_map  — dict of team_id -> Team object
+-->
+
+<article class="fixture-card" x-data="{ open: false }">
+  <header>
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+      <div>
+        <span class="ha-badge ha-{{ 'home' if fixture.is_home else 'away' }}">
+          {{ "H" if fixture.is_home else "A" }}
+        </span>
+        <strong>{{ fixture.opponent_name }}</strong>
+      </div>
+      <small>{{ fixture.played_at.strftime('%d %b %Y') }}</small>
+    </div>
+  </header>
+
+  <!-- Expected goals -->
+  <div style="display:flex; gap:1.5rem; margin-bottom:0.75rem; font-size:0.85rem;">
+    <span title="Expected goals for {{ team.name }}">
+      xG {{ team.short_name or team.name }}: <strong>{{ "%.2f"|format(fixture.lambda_team) }}</strong>
+    </span>
+    <span title="Expected goals for {{ fixture.opponent_name }}">
+      xG {{ fixture.opponent_name }}: <strong>{{ "%.2f"|format(fixture.lambda_opponent) }}</strong>
+    </span>
+  </div>
+
+  <!-- W/D/L stacked probability bar -->
+  <div class="wdl-bar" title="Win {{ (fixture.p_win * 100)|round(1) }}% / Draw {{ (fixture.p_draw * 100)|round(1) }}% / Loss {{ (fixture.p_loss * 100)|round(1) }}%">
+    <div class="wdl-segment wdl-win" style="width: {{ (fixture.p_win * 100)|round(1) }}%;">
+      {% if fixture.p_win > 0.08 %}{{ (fixture.p_win * 100)|round(0)|int }}%{% endif %}
+    </div>
+    <div class="wdl-segment wdl-draw" style="width: {{ (fixture.p_draw * 100)|round(1) }}%;">
+      {% if fixture.p_draw > 0.08 %}{{ (fixture.p_draw * 100)|round(0)|int }}%{% endif %}
+    </div>
+    <div class="wdl-segment wdl-loss" style="width: {{ (fixture.p_loss * 100)|round(1) }}%;">
+      {% if fixture.p_loss > 0.08 %}{{ (fixture.p_loss * 100)|round(0)|int }}%{% endif %}
+    </div>
+  </div>
+  <div style="display:flex; font-size:0.7rem; color:var(--pico-muted-color, #666); margin-top:2px;">
+    <span style="width: {{ (fixture.p_win * 100)|round(1) }}%; text-align:center;">Win</span>
+    <span style="width: {{ (fixture.p_draw * 100)|round(1) }}%; text-align:center;">Draw</span>
+    <span style="width: {{ (fixture.p_loss * 100)|round(1) }}%; text-align:center;">Loss</span>
+  </div>
+
+  <!-- Top scorelines -->
+  <div style="margin-top:0.75rem;">
+    <small style="color:var(--pico-muted-color, #666);">Most likely scores:</small>
+    <div style="display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.25rem;">
+      {% for h, a, prob in fixture.top_scores[:3] %}
+      <span class="stat-pill">
+        {{ h }}&ndash;{{ a }}
+        <small>({{ (prob * 100)|round(1) }}%)</small>
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Expandable heatmap toggle -->
+  <div style="margin-top:0.75rem;">
+    <button
+      class="outline secondary"
+      style="font-size:0.8rem; padding:0.3rem 0.6rem;"
+      @click="open = !open"
+      x-text="open ? 'Hide score grid' : 'Show score grid'"
+    >Show score grid</button>
+
+    <div x-show="open" x-cloak style="margin-top:0.5rem;">
+      <div class="score-heatmap">
+        <!-- Header row: blank corner + away goals 0-5 -->
+        <div class="heatmap-header"></div>
+        {% for j in range(6) %}
+        <div class="heatmap-header">{{ j }}</div>
+        {% endfor %}
+
+        <!-- Data rows: home goals 0-5 -->
+        {% for i in range(6) %}
+        <div class="heatmap-header">{{ i }}</div>
+        {% for j in range(6) %}
+        {% set cell_prob = fixture.score_matrix[i][j] %}
+        {% set is_top = false %}
+        {% for th, ta, tp in fixture.top_scores[:3] %}
+          {% if th == i and ta == j %}{% set is_top = true %}{% endif %}
+        {% endfor %}
+        <div
+          class="heatmap-cell{% if is_top %} heatmap-cell--top{% endif %}"
+          style="background: rgba(21, 101, 192, {{ (cell_prob * 8)|round(2) }});"
+          title="{{ i }}-{{ j }}: {{ (cell_prob * 100)|round(1) }}%"
+        >
+          {{ (cell_prob * 100)|round(1) }}
+        </div>
+        {% endfor %}
+        {% endfor %}
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:var(--pico-muted-color, #666); margin-top:4px;">
+        <span>&uarr; Home goals &rarr; Away goals</span>
+      </div>
+    </div>
+  </div>
+</article>

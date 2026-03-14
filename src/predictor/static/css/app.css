@@ -127,3 +127,179 @@ footer {
    Alpine.js x-cloak (hide elements before Alpine initialises)
    ------------------------------------------------------------------------- */
 [x-cloak] { display: none !important; }
+
+/* -------------------------------------------------------------------------
+   Team deep-dive page
+   ------------------------------------------------------------------------- */
+
+/* Hero section */
+.team-hero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Stat pills */
+.stat-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--pico-secondary-background, #e0e0e0);
+  font-size: 0.8rem;
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+/* Strength bars */
+.strength-bar-container {
+  position: relative;
+  height: 16px;
+  background: var(--fp-prob-bar-bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.strength-bar {
+  height: 100%;
+  border-radius: 4px;
+  animation: bar-grow 0.6s ease-out;
+}
+
+.strength-above { background: var(--fp-win); }
+.strength-below { background: var(--fp-loss); }
+
+.strength-baseline {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--pico-color, #333);
+  opacity: 0.5;
+}
+
+/* Fixture cards */
+.fixture-card {
+  border-radius: 8px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fixture-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Win/Draw/Loss stacked bar */
+.wdl-bar {
+  display: flex;
+  height: 24px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.wdl-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  min-width: 2px;
+  animation: bar-grow 0.6s ease-out;
+}
+
+.wdl-win  { background: var(--fp-win); }
+.wdl-draw { background: var(--fp-draw); color: #333; }
+.wdl-loss { background: var(--fp-loss); }
+
+/* Score heatmap */
+.score-heatmap {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  max-width: 350px;
+}
+
+.heatmap-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  border-radius: 3px;
+  color: #fff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.4);
+}
+
+.heatmap-cell--top {
+  outline: 2px solid var(--fp-champion);
+  outline-offset: -1px;
+}
+
+.heatmap-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* Outlook card */
+.outlook-card {
+  padding: 1rem;
+  border-radius: 8px;
+  background: var(--pico-card-background-color, #fff);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Home/Away badge */
+.ha-badge {
+  display: inline-block;
+  width: 1.4rem;
+  height: 1.4rem;
+  line-height: 1.4rem;
+  text-align: center;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.ha-home {
+  background: var(--fp-europe);
+  color: #fff;
+}
+
+.ha-away {
+  background: var(--pico-secondary-background, #e0e0e0);
+  color: var(--pico-color, #333);
+}
+
+/* Bar grow animation */
+@keyframes bar-grow {
+  from { width: 0; }
+}
+
+/* -------------------------------------------------------------------------
+   Dark theme overrides for team page
+   ------------------------------------------------------------------------- */
+[data-theme="dark"] .heatmap-cell {
+  text-shadow: none;
+}
+
+[data-theme="dark"] .outlook-card {
+  background: var(--pico-card-background-color, #1a1a2e);
+}
+
+[data-theme="dark"] .stat-pill {
+  background: var(--pico-secondary-background, #2a2a3e);
+}
+
+[data-theme="dark"] .strength-bar-container {
+  background: #333;
+}
+
+[data-theme="dark"] .ha-away {
+  background: #444;
+  color: #eee;
+}

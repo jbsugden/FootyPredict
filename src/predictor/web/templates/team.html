@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}{{ team.name }} — {{ league.name }} — FootyPredict{% endblock %}
+
+{% block content %}
+
+<!-- ================================================================== -->
+<!-- Hero Header                                                         -->
+<!-- ================================================================== -->
+<nav aria-label="breadcrumb" style="margin-bottom:0.5rem;">
+  <ul style="list-style:none; display:flex; gap:0.5rem; padding:0; margin:0; font-size:0.85rem;">
+    <li><a href="/league/{{ league.id }}">{{ league.name }}</a></li>
+    <li style="color:var(--pico-muted-color, #999);">&rsaquo;</li>
+    <li>{{ team.name }}</li>
+  </ul>
+</nav>
+
+<section class="team-hero">
+  <div>
+    <h1 style="margin-bottom:0.25rem;">{{ team.name }}</h1>
+    <p style="margin-top:0;">Season {{ league.current_season }}</p>
+  </div>
+
+  {% if team_season %}
+  <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
+    <span class="stat-pill">P {{ team_season.played }}</span>
+    <span class="stat-pill">W {{ team_season.won }}</span>
+    <span class="stat-pill">D {{ team_season.drawn }}</span>
+    <span class="stat-pill">L {{ team_season.lost }}</span>
+    <span class="stat-pill">GF {{ team_season.goals_for }}</span>
+    <span class="stat-pill">GA {{ team_season.goals_against }}</span>
+    <span class="stat-pill"><strong>{{ team_season.points }} pts</strong></span>
+  </div>
+
+  <div style="display:flex; gap:0.25rem; align-items:center;">
+    {% for result in team_season.form %}
+      <span class="form-badge form-{{ result|upper }}">{{ result|upper }}</span>
+    {% endfor %}
+    {% if team_season.elo_rating %}
+      <span class="stat-pill" style="margin-left:0.5rem;" title="ELO rating">
+        ELO {{ team_season.elo_rating|round(0)|int }}
+      </span>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+
+<hr />
+
+<!-- ================================================================== -->
+<!-- Two-column: Prediction Summary + Strength Profile                   -->
+<!-- ================================================================== -->
+<div class="grid">
+  <!-- Prediction Summary -->
+  <section>
+    <h2>Prediction Summary</h2>
+    {% if team_prediction %}
+    <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-bottom:1rem;">
+      <div>
+        <small style="color:var(--pico-muted-color, #666);">Mean Position</small>
+        <div style="font-size:1.8rem; font-weight:700;">{{ "%.1f"|format(team_prediction.mean_pos) }}</div>
+      </div>
+      <div>
+        <small style="color:var(--pico-muted-color, #666);">Mean Points</small>
+        <div style="font-size:1.8rem; font-weight:700;">{{ "%.1f"|format(team_prediction.mean_points) }}</div>
+      </div>
+    </div>
+
+    <!-- Position distribution chart for this team -->
+    <div style="position:relative; height:250px; width:100%;">
+      <canvas id="teamPosChart"></canvas>
+    </div>
+    {% else %}
+    <article>
+      <p><em>Run a prediction first to see position distribution data.</em></p>
+    </article>
+    {% endif %}
+  </section>
+
+  <!-- Strength Profile -->
+  <section>
+    <h2>Strength Profile</h2>
+    <p style="font-size:0.85rem; color:var(--pico-muted-color, #666);">
+      Relative to league average (1.0)
+    </p>
+
+    <div style="margin-bottom:1.5rem;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem;">
+        <span>Attack</span>
+        <strong>{{ "%.2f"|format(fp_result.team_strength.attack) }}</strong>
+      </div>
+      <div class="strength-bar-container">
+        <div
+          class="strength-bar {% if fp_result.team_strength.attack >= 1.0 %}strength-above{% else %}strength-below{% endif %}"
+          style="width: {{ (fp_result.team_strength.attack / 2.0 * 100)|round(1) }}%;"
+        ></div>
+        <div class="strength-baseline" style="left: 50%;"></div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:1.5rem;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem;">
+        <span>Defence</span>
+        <strong>{{ "%.2f"|format(fp_result.team_strength.defence) }}</strong>
+      </div>
+      <div class="strength-bar-container">
+        <div
+          class="strength-bar {% if fp_result.team_strength.defence <= 1.0 %}strength-above{% else %}strength-below{% endif %}"
+          style="width: {{ (fp_result.team_strength.defence / 2.0 * 100)|round(1) }}%;"
+        ></div>
+        <div class="strength-baseline" style="left: 50%;"></div>
+      </div>
+      <small style="color:var(--pico-muted-color, #666); font-size:0.75rem;">
+        Lower defence value = fewer goals conceded = better
+      </small>
+    </div>
+
+    <div style="font-size:0.85rem; color:var(--pico-muted-color, #666);">
+      League avg goals/team/game: <strong>{{ "%.2f"|format(fp_result.league_avg_goals) }}</strong>
+    </div>
+  </section>
+</div>
+
+<hr />
+
+<!-- ================================================================== -->
+<!-- Aggregate Outlook                                                    -->
+<!-- ================================================================== -->
+<section>
+  <h2>Aggregate Outlook</h2>
+  <div class="outlook-card">
+    <div class="grid" style="gap:1rem;">
+      <div>
+        <small style="color:var(--pico-muted-color, #666);">Expected Remaining Points</small>
+        <div style="font-size:1.6rem; font-weight:700;">
+          {{ "%.1f"|format(fp_result.expected_remaining_points) }}
+        </div>
+        <small style="color:var(--pico-muted-color, #666);">
+          from {{ fp_result.fixtures|length }} fixture{{ "s" if fp_result.fixtures|length != 1 }}
+        </small>
+      </div>
+      {% if toughest %}
+      <div>
+        <small style="color:var(--pico-muted-color, #666);">Toughest Fixture</small>
+        <div>
+          <strong>{{ toughest.opponent_name }}</strong>
+          <span class="ha-badge ha-{{ 'home' if toughest.is_home else 'away' }}">{{ "H" if toughest.is_home else "A" }}</span>
+        </div>
+        <small>Win prob: {{ (toughest.p_win * 100)|round(1) }}%</small>
+      </div>
+      {% endif %}
+      {% if easiest %}
+      <div>
+        <small style="color:var(--pico-muted-color, #666);">Easiest Fixture</small>
+        <div>
+          <strong>{{ easiest.opponent_name }}</strong>
+          <span class="ha-badge ha-{{ 'home' if easiest.is_home else 'away' }}">{{ "H" if easiest.is_home else "A" }}</span>
+        </div>
+        <small>Win prob: {{ (easiest.p_win * 100)|round(1) }}%</small>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<hr />
+
+<!-- ================================================================== -->
+<!-- Remaining Fixtures                                                   -->
+<!-- ================================================================== -->
+<section>
+  <h2>Remaining Fixtures</h2>
+  {% if fp_result.fixtures %}
+    {% for fixture in fp_result.fixtures %}
+      {% include "partials/fixture_card.html" %}
+    {% endfor %}
+  {% else %}
+  <article>
+    <p><em>All fixtures have been played. No remaining matches to predict.</em></p>
+  </article>
+  {% endif %}
+</section>
+
+<hr />
+
+<!-- ================================================================== -->
+<!-- Recent Results                                                       -->
+<!-- ================================================================== -->
+<section>
+  <h2>Recent Results</h2>
+  {% if recent_results %}
+  <div class="table-responsive">
+    <table role="grid">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>H/A</th>
+          <th>Opponent</th>
+          <th>Score</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in recent_results %}
+        {% set is_home = m.home_team_id == team.id %}
+        {% set opp_id = m.away_team_id if is_home else m.home_team_id %}
+        {% set team_goals = m.home_goals if is_home else m.away_goals %}
+        {% set opp_goals = m.away_goals if is_home else m.home_goals %}
+        {% if team_goals > opp_goals %}
+          {% set result_code = "W" %}
+        {% elif team_goals == opp_goals %}
+          {% set result_code = "D" %}
+        {% else %}
+          {% set result_code = "L" %}
+        {% endif %}
+        <tr>
+          <td>{{ m.played_at.strftime('%d %b') }}</td>
+          <td><span class="ha-badge ha-{{ 'home' if is_home else 'away' }}">{{ "H" if is_home else "A" }}</span></td>
+          <td>
+            {% if opp_id in team_map %}
+              {{ team_map[opp_id].name }}
+            {% else %}
+              {{ opp_id }}
+            {% endif %}
+          </td>
+          <td><strong>{{ m.home_goals }}&ndash;{{ m.away_goals }}</strong></td>
+          <td><span class="form-badge form-{{ result_code }}">{{ result_code }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p><em>No recent results.</em></p>
+  {% endif %}
+</section>
+
+{% endblock %}
+
+
+{% block extra_scripts %}
+{% if team_prediction %}
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const posProbs = {{ team_prediction.pos_dist | tojson }};
+    const teamName = {{ team.name | tojson }};
+    const ctx = document.getElementById('teamPosChart');
+    if (ctx && window.FootyPredict) {
+      FootyPredict.renderSingleTeamChart(ctx, posProbs, teamName);
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}

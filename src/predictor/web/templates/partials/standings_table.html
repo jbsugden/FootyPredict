@@ -34,7 +34,7 @@
         <td>
           <strong>
             {% if team_map and ts.team_id in team_map %}
-              {{ team_map[ts.team_id].name }}
+              <a href="/league/{{ league.id }}/team/{{ ts.team_id }}">{{ team_map[ts.team_id].name }}</a>
             {% else %}
               {{ ts.team_id }}
             {% endif %}

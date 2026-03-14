@@ -15,6 +15,7 @@ References:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -24,26 +25,29 @@ import numpy as np
 # Time-decay weights for form-weighting historical results
 # ---------------------------------------------------------------------------
 
-# Matches played within the last 6 weeks get full weight
-WEIGHT_RECENT = 1.0
-# Matches from 6–12 weeks ago get reduced weight
-WEIGHT_MID = 0.7
-# Matches older than 12 weeks get lowest weight
-WEIGHT_OLD = 0.4
+# Continuous exponential decay: w(t) = exp(-ln(2) * t / half_life)
+# A match played half_life weeks ago receives weight 0.5.
+DECAY_HALF_LIFE_WEEKS = 10.0
 
-WEEKS_RECENT = 6
-WEEKS_MID = 12
+# ---------------------------------------------------------------------------
+# Bayesian shrinkage toward the mean
+# ---------------------------------------------------------------------------
+
+# Shrinkage constant: with n effective weighted matches, the fraction of raw
+# signal retained is n / (n + SHRINKAGE_K).  Higher K → more regression.
+SHRINKAGE_K = 6.0
 
 
 def _get_weight(played_at: datetime, now: datetime | None = None) -> float:
-    """Return the time-decay weight for a single match.
+    """Return the continuous exponential time-decay weight for a match.
 
     Args:
         played_at: When the match was played (timezone-aware).
         now: Reference datetime (defaults to UTC now).
 
     Returns:
-        Weight scalar in ``{WEIGHT_OLD, WEIGHT_MID, WEIGHT_RECENT}``.
+        Weight in (0, 1] — 1.0 for a match played right now, 0.5 at
+        ``DECAY_HALF_LIFE_WEEKS``, decaying smoothly toward 0.
     """
     if now is None:
         now = datetime.now(tz=timezone.utc)
@@ -53,11 +57,7 @@ def _get_weight(played_at: datetime, now: datetime | None = None) -> float:
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     weeks_ago = (now - played_at).days / 7.0
-    if weeks_ago <= WEEKS_RECENT:
-        return WEIGHT_RECENT
-    if weeks_ago <= WEEKS_MID:
-        return WEIGHT_MID
-    return WEIGHT_OLD
+    return math.exp(-math.log(2) * weeks_ago / DECAY_HALF_LIFE_WEEKS)
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +107,11 @@ class StrengthCalculator:
         self._now = now or datetime.now(tz=timezone.utc)
         self._strengths: dict[str, TeamStrengths] | None = None
 
+    @property
+    def matches(self) -> list[MatchRecord]:
+        """Public access to the historical match records."""
+        return self._matches
+
     def compute_strengths(self) -> dict[str, TeamStrengths]:
         """Compute attack and defence strengths for all teams.
 
@@ -153,10 +158,16 @@ class StrengthCalculator:
                 continue
             avg_scored = scored / weight
             avg_conceded = conceded / weight
+            raw_attack = avg_scored / league_avg if league_avg > 0 else 1.0
+            raw_defence = avg_conceded / league_avg if league_avg > 0 else 1.0
+
+            # Bayesian shrinkage: regress toward 1.0 based on sample size
+            n = weight  # effective weighted match count
+            shrink = n / (n + SHRINKAGE_K)
             strengths[team_id] = TeamStrengths(
                 team_id=team_id,
-                attack=avg_scored / league_avg if league_avg > 0 else 1.0,
-                defence=avg_conceded / league_avg if league_avg > 0 else 1.0,
+                attack=1.0 + shrink * (raw_attack - 1.0),
+                defence=1.0 + shrink * (raw_defence - 1.0),
             )
 
         self._strengths = strengths

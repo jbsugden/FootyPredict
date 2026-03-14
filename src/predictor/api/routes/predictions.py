@@ -193,7 +193,14 @@ async def _run_prediction_task(league_id: str) -> None:
                 logger.warning("prediction_task_no_finished_matches", league_id=league_id)
                 return
 
-            # Build StrengthCalculator from finished matches
+            # Include previous-season matches for cross-season prior
+            from predictor.db.repos.match import previous_season
+            prev = previous_season(league.current_season)
+            prev_finished = await match_repo.get_finished_multi_season(
+                league_id, [prev]
+            )
+
+            # Build StrengthCalculator from current + previous season
             match_records = [
                 MatchRecord(
                     home_team_id=m.home_team_id,
@@ -202,7 +209,7 @@ async def _run_prediction_task(league_id: str) -> None:
                     away_goals=m.away_goals or 0,
                     played_at=m.played_at,
                 )
-                for m in finished
+                for m in prev_finished + finished
             ]
             strength_calc = StrengthCalculator(match_records)
             strength_calc.compute_strengths()

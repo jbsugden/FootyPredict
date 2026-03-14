@@ -131,6 +131,13 @@ async def daily_predict() -> None:
                         logger.info("daily_predict_no_data", league=league.code)
                         continue
 
+                    # Include previous-season matches for cross-season prior
+                    from predictor.db.repos.match import previous_season
+                    prev = previous_season(league.current_season)
+                    prev_finished = await match_repo.get_finished_multi_season(
+                        league.id, [prev]
+                    )
+
                     match_records = [
                         MatchRecord(
                             home_team_id=m.home_team_id,
@@ -139,7 +146,7 @@ async def daily_predict() -> None:
                             away_goals=m.away_goals or 0,
                             played_at=m.played_at,
                         )
-                        for m in finished
+                        for m in prev_finished + finished
                     ]
 
                     strength_calc = StrengthCalculator(match_records)

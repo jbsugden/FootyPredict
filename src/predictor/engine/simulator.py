@@ -16,6 +16,7 @@ import numpy as np
 from scipy.stats import poisson  # type: ignore[import-untyped]
 
 from predictor.engine.dixon_coles import DixonColesCorrection
+from predictor.engine.head_to_head import adjust_lambdas_h2h
 from predictor.engine.poisson import StrengthCalculator
 from predictor.engine.standings import (
     StandingsDict,
@@ -125,6 +126,10 @@ class MonteCarloSimulator:
                 fixture.home_id,
                 fixture.away_id,
                 sim_input.league_avg_goals,
+            )
+            lh, la = adjust_lambdas_h2h(
+                lh, la, sim_input.strength_calculator.matches,
+                fixture.home_id, fixture.away_id,
             )
             lambdas_home[i] = lh
             lambdas_away[i] = la

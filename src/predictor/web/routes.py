@@ -15,9 +15,11 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from predictor.api.deps import DbSession
-from predictor.db.models import League, TeamSeason
+from predictor.db.models import League, Match, MatchStatus, TeamSeason
+from predictor.db.repos.match import MatchRepository
 from predictor.db.repos.prediction import PredictionRepository
 from predictor.db.repos.team import TeamRepository
+from predictor.engine.fixture_prediction import predict_fixtures
 
 logger = structlog.get_logger(__name__)
 
@@ -135,6 +137,115 @@ async def league_detail(
             "predicted_table": predicted_table,
             "prediction": prediction,
             "n_teams": len(teams),
+            "nav_leagues": nav_leagues,
+        },
+    )
+
+
+@router.get("/league/{league_id}/team/{team_id}", response_class=HTMLResponse)
+async def team_detail(
+    request: Request,
+    league_id: str,
+    team_id: str,
+    db: DbSession,
+) -> HTMLResponse:
+    """Team deep-dive page — per-fixture prediction breakdowns.
+
+    Args:
+        league_id: UUID of the league.
+        team_id: UUID of the team.
+
+    Returns:
+        Rendered ``team.html`` template.
+
+    Raises:
+        HTTPException 404: If the league or team does not exist.
+    """
+    league = await db.get(League, league_id)
+    if league is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"League {league_id!r} not found.",
+        )
+
+    team_repo = TeamRepository(db)
+    team = await team_repo.get_by_id(team_id)
+    if team is None or team.league_id != league_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Team {team_id!r} not found in league {league_id!r}.",
+        )
+
+    # Current season record
+    ts_result = await db.execute(
+        select(TeamSeason).where(
+            TeamSeason.team_id == team_id,
+            TeamSeason.league_id == league_id,
+            TeamSeason.season == league.current_season,
+        )
+    )
+    team_season = ts_result.scalars().first()
+
+    # All teams for name lookups
+    teams = await team_repo.get_by_league(league_id)
+    team_map = {t.id: t for t in teams}
+
+    # Matches
+    match_repo = MatchRepository(db)
+    finished_matches = await match_repo.get_finished(league_id, league.current_season)
+    scheduled_matches = await match_repo.get_scheduled(league_id, league.current_season)
+
+    # Include previous-season matches for cross-season strength prior
+    from predictor.db.repos.match import previous_season
+    prev = previous_season(league.current_season)
+    prev_finished = await match_repo.get_finished_multi_season(league_id, [prev])
+
+    # Per-fixture predictions (previous season matches provide historical anchor)
+    fp_result = predict_fixtures(
+        prev_finished + finished_matches, scheduled_matches, team_id, team_map
+    )
+
+    # Latest prediction for position distribution
+    pred_repo = PredictionRepository(db)
+    prediction = await pred_repo.get_latest(league_id, league.current_season)
+
+    team_prediction = None
+    if prediction and team_id in prediction.results:
+        team_prediction = prediction.results[team_id]
+
+    # Last 5 finished matches involving this team (most recent first)
+    team_finished = [
+        m
+        for m in finished_matches
+        if m.home_team_id == team_id or m.away_team_id == team_id
+    ]
+    recent_results = team_finished[-5:][::-1]
+
+    # Aggregate outlook: toughest and easiest fixture
+    toughest = None
+    easiest = None
+    if fp_result.fixtures:
+        toughest = min(fp_result.fixtures, key=lambda f: f.p_win)
+        easiest = max(fp_result.fixtures, key=lambda f: f.p_win)
+
+    # Nav leagues
+    nav_result = await db.execute(select(League).order_by(League.tier, League.name))
+    nav_leagues = nav_result.scalars().all()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="team.html",
+        context={
+            "league": league,
+            "team": team,
+            "team_season": team_season,
+            "team_map": team_map,
+            "fp_result": fp_result,
+            "team_prediction": team_prediction,
+            "prediction": prediction,
+            "recent_results": recent_results,
+            "toughest": toughest,
+            "easiest": easiest,
             "nav_leagues": nav_leagues,
         },
     )
