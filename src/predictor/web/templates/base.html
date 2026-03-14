@@ -42,13 +42,13 @@
       </li>
     </ul>
     <ul>
-      <!-- Quick-links to the two primary leagues -->
-      <li>
-        <a href="/league/premier-league" id="nav-pl">Premier League</a>
-      </li>
-      <li>
-        <a href="/league/npl-west" id="nav-npl-w">NPL West</a>
-      </li>
+      {% if nav_leagues is defined and nav_leagues %}
+        {% for lg in nav_leagues %}
+        <li>
+          <a href="/league/{{ lg.id }}">{{ lg.name }}</a>
+        </li>
+        {% endfor %}
+      {% endif %}
       <li>
         <a href="/admin/import" role="button" class="outline secondary" style="font-size: 0.85rem;">
           Import CSV
@@ -82,8 +82,8 @@
         football-data.org
       </a>
       &amp;
-      <a href="https://fulltime.thefa.com/" target="_blank" rel="noopener">
-        FA Full Time
+      <a href="https://www.thenpl.co.uk/" target="_blank" rel="noopener">
+        thenpl.co.uk
       </a>
     </small>
   </footer>

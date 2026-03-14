@@ -55,12 +55,7 @@
   <!-- ---------------------------------------------------------------- -->
   <section>
     <h2>Current Standings</h2>
-    <div
-      id="standings-table"
-      hx-get="/api/leagues/{{ league.id }}/table"
-      hx-trigger="load"
-      hx-swap="innerHTML"
-    >
+    <div id="standings-table">
       {% include "partials/standings_table.html" %}
     </div>
   </section>

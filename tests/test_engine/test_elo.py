@@ -98,14 +98,17 @@ class TestUpdateRatings:
     def test_upset_win_gives_more_points_than_expected_win(self) -> None:
         """Beating a much stronger side should yield more Elo gain than beating a weaker one."""
         calc = EloCalculator(k_factor=32, home_advantage=0.0)
-        # Upset: weak (1200) beats strong (1800)
-        _, gain_upset = calc.update_ratings(1200, 1800, 0, 1)
-        # Expected: strong (1800) beats weak (1200)
-        gain_expected, _ = calc.update_ratings(1800, 1200, 1, 0)
-        # The weaker team gains more from the upset
-        upset_gain = gain_upset - 1800  # away team started at 1800
-        expected_gain = gain_expected - 1800  # home team started at 1800
-        assert abs(upset_gain) > abs(expected_gain)
+        # Upset: weak (1200) beats strong (1800) — weak team is home, wins 1-0
+        upset_new_home, _ = calc.update_ratings(1200, 1800, 1, 0)
+        upset_gain = upset_new_home - 1200  # gain for the weak team
+
+        # Expected: strong (1800) beats weak (1200) — strong team is home, wins 1-0
+        expected_new_home, _ = calc.update_ratings(1800, 1200, 1, 0)
+        expected_gain = expected_new_home - 1800  # gain for the strong team
+
+        # The weaker team gains more Elo from an upset than the strong team gains
+        # from an expected result
+        assert upset_gain > expected_gain
 
     def test_k_factor_scales_update_magnitude(self) -> None:
         """Higher K-factor should produce larger rating changes."""

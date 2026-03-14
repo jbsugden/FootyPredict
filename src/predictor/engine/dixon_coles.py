@@ -123,8 +123,6 @@ class DixonColesCorrection:
             Tuple ``(p_home_win, p_draw, p_away_win)``.
         """
         n = matrix.shape[0]
-        p_home = float(np.sum(matrix[i, j] for i in range(n) for j in range(i) if j < n))
-        # Faster vectorised version
         p_home = float(np.sum(np.tril(matrix, k=-1)))
         p_away = float(np.sum(np.triu(matrix, k=1)))
         p_draw = float(np.trace(matrix))

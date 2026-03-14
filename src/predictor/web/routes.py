@@ -28,6 +28,16 @@ _TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 
 
+def _top_positions(pos_dist: list[float], n: int = 3) -> list[tuple[int, float]]:
+    """Return top-n (index, probability) pairs sorted by probability descending."""
+    indexed = list(enumerate(pos_dist))
+    indexed.sort(key=lambda x: x[1], reverse=True)
+    return indexed[:n]
+
+
+templates.env.filters["top_positions"] = _top_positions
+
+
 # ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
@@ -46,7 +56,7 @@ async def index(request: Request, db: DbSession) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"leagues": leagues},
+        context={"leagues": leagues, "nav_leagues": leagues},
     )
 
 
@@ -111,6 +121,10 @@ async def league_detail(
         ]
         predicted_table = sorted(items, key=lambda x: x["mean_pos"])
 
+    # Load leagues for nav
+    nav_result = await db.execute(select(League).order_by(League.tier, League.name))
+    nav_leagues = nav_result.scalars().all()
+
     return templates.TemplateResponse(
         request=request,
         name="league.html",
@@ -121,19 +135,23 @@ async def league_detail(
             "predicted_table": predicted_table,
             "prediction": prediction,
             "n_teams": len(teams),
+            "nav_leagues": nav_leagues,
         },
     )
 
 
 @router.get("/admin/import", response_class=HTMLResponse)
-async def admin_import_page(request: Request) -> HTMLResponse:
+async def admin_import_page(request: Request, db: DbSession) -> HTMLResponse:
     """Admin CSV import form page.
 
     Returns:
         Rendered ``admin/import.html`` template.
     """
+    nav_result = await db.execute(select(League).order_by(League.tier, League.name))
+    nav_leagues = nav_result.scalars().all()
+
     return templates.TemplateResponse(
         request=request,
         name="admin/import.html",
-        context={},
+        context={"nav_leagues": nav_leagues},
     )

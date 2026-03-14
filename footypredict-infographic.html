@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FootyPredict — How It Works</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e2e4ea;
+    --text-dim: #8b8fa3;
+    --accent: #6c63ff;
+    --accent2: #00c9a7;
+    --accent3: #ff6b6b;
+    --accent4: #ffd93d;
+    --accent5: #4ecdc4;
+    --glow: rgba(108, 99, 255, 0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    text-align: center;
+    padding: 60px 24px 40px;
+    background: linear-gradient(180deg, rgba(108,99,255,0.08) 0%, transparent 100%);
+  }
+  .hero h1 {
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, #6c63ff, #00c9a7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p {
+    color: var(--text-dim);
+    font-size: 1.15rem;
+    max-width: 600px;
+    margin: 12px auto 0;
+  }
+  .hero .tagline {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 6px 18px;
+    border-radius: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+    color: var(--accent2);
+  }
+
+  /* ── Depth Toggle ── */
+  .depth-bar {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    padding: 20px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(15,17,23,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .depth-btn {
+    padding: 8px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+  .depth-btn:hover { border-color: var(--accent); color: var(--text); }
+  .depth-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  /* ── Container ── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── Pipeline ── */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 40px 0 60px;
+    position: relative;
+  }
+  .pipeline::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(180deg, var(--accent), var(--accent2), var(--accent4), var(--accent3));
+    opacity: 0.3;
+    transform: translateX(-50%);
+  }
+
+  /* ── Stage ── */
+  .stage {
+    position: relative;
+    padding: 24px 0;
+  }
+  .stage-connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .stage-connector .arrow {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    z-index: 2;
+    color: var(--accent);
+  }
+
+  .stage-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .stage-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 30px var(--glow);
+    transform: translateY(-2px);
+  }
+  .stage-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 24px 28px;
+  }
+  .stage-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+    flex-shrink: 0;
+  }
+  .stage-title { font-size: 1.25rem; font-weight: 700; }
+  .stage-subtitle { font-size: 0.9rem; color: var(--text-dim); margin-top: 2px; }
+  .stage-expand {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-size: 1.2rem;
+    transition: transform 0.3s;
+    flex-shrink: 0;
+  }
+  .stage-card.open .stage-expand { transform: rotate(180deg); }
+
+  .stage-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease;
+  }
+  .stage-card.open .stage-body { max-height: 2000px; }
+
+  .stage-content {
+    padding: 0 28px 28px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Simple explanation ── */
+  .simple-explain {
+    padding: 20px 0 12px;
+    font-size: 1.05rem;
+    color: var(--text);
+    line-height: 1.7;
+  }
+
+  /* ── Technical Details ── */
+  .tech-details {
+    display: none;
+    margin-top: 16px;
+  }
+  body.depth-technical .tech-details,
+  body.depth-expert .tech-details { display: block; }
+
+  .expert-details {
+    display: none;
+    margin-top: 16px;
+  }
+  body.depth-expert .expert-details { display: block; }
+
+  /* ── Info blocks ── */
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .info-block {
+    background: var(--surface2);
+    border-radius: 10px;
+    padding: 16px;
+    border: 1px solid var(--border);
+  }
+  .info-block h4 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .info-block p, .info-block code {
+    font-size: 0.9rem;
+    color: var(--text);
+  }
+
+  code {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    background: rgba(108,99,255,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.82em;
+    color: var(--accent);
+  }
+  pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    margin-top: 10px;
+    color: var(--text-dim);
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+  }
+
+  .formula {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 12px 0;
+    text-align: center;
+    font-size: 1.05rem;
+    font-style: italic;
+    color: var(--accent2);
+    font-family: 'Georgia', serif;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin: 2px 4px 2px 0;
+  }
+  .tag-py { background: rgba(108,99,255,0.15); color: var(--accent); }
+  .tag-api { background: rgba(0,201,167,0.15); color: var(--accent2); }
+  .tag-db { background: rgba(255,217,61,0.15); color: var(--accent4); }
+  .tag-html { background: rgba(255,107,107,0.15); color: var(--accent3); }
+
+  /* ── Flow diagram ── */
+  .flow-summary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    padding: 30px 0;
+  }
+  .flow-chip {
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+  .flow-arrow {
+    color: var(--text-dim);
+    font-size: 1.2rem;
+  }
+
+  /* ── Architecture diagram ── */
+  .arch-diagram {
+    margin: 20px 0;
+    padding: 24px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--text-dim);
+  }
+
+  /* ── Glossary ── */
+  .glossary {
+    margin-top: 16px;
+  }
+  .glossary-item {
+    display: flex;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .glossary-term {
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 140px;
+    flex-shrink: 0;
+    font-size: 0.9rem;
+  }
+  .glossary-def {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  /* ── Footer ── */
+  footer {
+    text-align: center;
+    padding: 40px 24px;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    .pipeline::before { left: 24px; }
+    .stage-header { padding: 18px 20px; }
+    .stage-content { padding: 0 20px 20px; }
+    .info-grid { grid-template-columns: 1fr; }
+    .flow-summary { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body class="depth-simple">
+
+<!-- ═══════════════════════ HERO ═══════════════════════ -->
+<section class="hero">
+  <h1>FootyPredict</h1>
+  <p>A Monte Carlo football league predictor that simulates thousands of possible season outcomes to forecast where each team will finish.</p>
+  <span class="tagline">Dixon-Coles Poisson Model &middot; 10,000 Simulations &middot; Real-Time Data</span>
+</section>
+
+<!-- ═══════════════════════ DEPTH TOGGLE ═══════════════════════ -->
+<div class="depth-bar">
+  <button class="depth-btn active" data-depth="simple" title="Plain English overview">Overview</button>
+  <button class="depth-btn" data-depth="technical" title="Architecture &amp; algorithms">Technical</button>
+  <button class="depth-btn" data-depth="expert" title="Code paths, formulas, and data shapes">Expert</button>
+</div>
+
+<!-- ═══════════════════════ FLOW SUMMARY ═══════════════════════ -->
+<div class="container">
+  <div class="flow-summary">
+    <div class="flow-chip" style="border-color:var(--accent2);color:var(--accent2);">External APIs</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-chip" style="border-color:var(--accent4);color:var(--accent4);">Database</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-chip" style="border-color:var(--accent);color:var(--accent);">Prediction Engine</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-chip" style="border-color:var(--accent3);color:var(--accent3);">Web UI</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ PIPELINE STAGES ═══════════════════════ -->
+<div class="container">
+<div class="pipeline">
+
+<!-- ─── STAGE 1: DATA COLLECTION ─── -->
+<div class="stage">
+  <div class="stage-card" onclick="toggleCard(this)">
+    <div class="stage-header">
+      <div class="stage-icon" style="background:rgba(0,201,167,0.12);color:var(--accent2);">&#127760;</div>
+      <div>
+        <div class="stage-title">1. Data Collection</div>
+        <div class="stage-subtitle">Fetching real match results and fixtures</div>
+      </div>
+      <div class="stage-expand">&#9660;</div>
+    </div>
+    <div class="stage-body">
+      <div class="stage-content">
+        <div class="simple-explain">
+          FootyPredict pulls live data from two sources: <strong>football-data.org</strong> (for the Premier League and other major leagues) and the <strong>NPL API</strong> at thenpl.co.uk (for Northern Premier League divisions). A built-in scheduler checks for new results automatically, or an admin can trigger a sync manually. You can also import historical data via CSV upload.
+        </div>
+
+        <div class="tech-details">
+          <div class="info-grid">
+            <div class="info-block">
+              <h4>football-data.org</h4>
+              <p>REST API v4. Rate-limited to ~10 req/min (enforced with a 2s inter-request delay). Returns JSON standings, finished results, and scheduled fixtures.</p>
+              <span class="tag tag-py">FootballDataOrgSource</span>
+            </div>
+            <div class="info-block">
+              <h4>NPL API</h4>
+              <p>JSON API at <code>api.thenpl.co.uk</code>. Requires <code>X-TENANT-ID: npl</code> header. Paginated match endpoint; standings are computed by aggregating finished results.</p>
+              <span class="tag tag-py">FAFullTimeScraper</span>
+            </div>
+            <div class="info-block">
+              <h4>CSV Import</h4>
+              <p>Admin endpoint accepts CSV with columns: <code>date, home_team, away_team, home_goals, away_goals, league_code, season</code>. Supports DD/MM/YYYY and ISO date formats.</p>
+              <span class="tag tag-api">POST /admin/import-csv</span>
+            </div>
+            <div class="info-block">
+              <h4>Scheduler</h4>
+              <p>APScheduler runs background jobs to sync data and re-run predictions on a configurable interval. Starts automatically at application boot.</p>
+              <span class="tag tag-py">predictor.scheduler</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="expert-details">
+          <p style="color:var(--text-dim);font-size:0.9rem;margin-bottom:8px;">Both adapters implement the <code>AbstractLeagueSource</code> protocol:</p>
+<pre><code>class AbstractLeagueSource(Protocol):
+    async def fetch_standings(league_code, season) -> list[StandingRow]
+    async def fetch_finished_matches(league_code, season) -> list[MatchData]
+    async def fetch_scheduled_fixtures(league_code, season) -> list[MatchData]</code></pre>
+          <p style="color:var(--text-dim);font-size:0.9rem;margin-top:12px;">NPL deduplication handles duplicate entries from the paginated API by tracking <code>_id</code> fields in a set. The <code>DataImporter</code> orchestrates the sync: resolves teams via <code>TeamRepository.get_or_create()</code>, upserts matches via <code>MatchRepository</code>, then triggers a <code>rebuild_team_seasons()</code> pass.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage-connector"><div class="arrow">&#8595;</div></div>
+
+<!-- ─── STAGE 2: DATABASE ─── -->
+<div class="stage">
+  <div class="stage-card" onclick="toggleCard(this)">
+    <div class="stage-header">
+      <div class="stage-icon" style="background:rgba(255,217,61,0.12);color:var(--accent4);">&#128451;</div>
+      <div>
+        <div class="stage-title">2. Database</div>
+        <div class="stage-subtitle">Structured storage for leagues, teams, matches, and predictions</div>
+      </div>
+      <div class="stage-expand">&#9660;</div>
+    </div>
+    <div class="stage-body">
+      <div class="stage-content">
+        <div class="simple-explain">
+          All data — leagues, teams, match results, standings, and prediction snapshots — is stored in a database. Each time new results come in, the system recalculates each team's season statistics (wins, draws, losses, goals, points, form, and ELO rating).
+        </div>
+
+        <div class="tech-details">
+          <div class="info-grid">
+            <div class="info-block">
+              <h4>ORM</h4>
+              <p>SQLAlchemy 2.0 async with <code>AsyncSession</code>. UUIDs as primary keys. SQLite for dev, PostgreSQL for production.</p>
+              <span class="tag tag-db">aiosqlite / asyncpg</span>
+            </div>
+            <div class="info-block">
+              <h4>Core Models</h4>
+              <p><code>League</code> &rarr; <code>Team</code> &rarr; <code>Match</code> &rarr; <code>TeamSeason</code> &rarr; <code>Prediction</code></p>
+              <span class="tag tag-py">predictor.db.models</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="expert-details">
+          <div class="arch-diagram">&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;      &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;      &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+&#9474;   League    &#9474;&#9472;&#9472;&#9472;&#9472;&#9472;&#9508;    Team    &#9474;&#9472;&#9472;&#9472;&#9472;&#9472;&#9508;     Match      &#9474;
+&#9474; id (UUID)   &#9474;  1:N &#9474; id (UUID)  &#9474;      &#9474; home_team_id   &#9474;
+&#9474; name, code  &#9474;      &#9474; name       &#9474;  N:1 &#9474; away_team_id   &#9474;
+&#9474; tier        &#9474;      &#9474; league_id  &#9474;      &#9474; home/away_goals&#9474;
+&#9474; data_source &#9474;      &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;      &#9474; status, date   &#9474;
+&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;                     &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;
+       &#9474;                            &#9474;
+       &#9474;  1:N &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;   &#9474;
+       &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9508;  TeamSeason  &#9474;   &#9474; built from
+              &#9474; P/W/D/L/GF/GA &#9474;&#9668;&#9472;&#9472;&#9496;
+       &#9474;      &#9474; points, form &#9474;
+       &#9474;      &#9474; elo_rating   &#9474;
+       &#9474;      &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;
+       &#9474;
+       &#9474;  1:N &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+       &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9508;  Prediction  &#9474;
+              &#9474; results JSON &#9474;  snapshot of simulation output
+              &#9474; sim_runs     &#9474;
+              &#9474; generated_at &#9474;
+              &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;</div>
+          <p style="color:var(--text-dim);font-size:0.85rem;margin-top:8px;"><code>rebuild_team_seasons()</code> reads all <code>FINISHED</code> matches ordered by <code>played_at</code>, computes W/D/L/GF/GA/Pts, derives a 5-character form string from the last 5 results, and feeds matches chronologically through the ELO calculator. Results are upserted into <code>TeamSeason</code>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage-connector"><div class="arrow">&#8595;</div></div>
+
+<!-- ─── STAGE 3: STRENGTH MODEL ─── -->
+<div class="stage">
+  <div class="stage-card" onclick="toggleCard(this)">
+    <div class="stage-header">
+      <div class="stage-icon" style="background:rgba(108,99,255,0.12);color:var(--accent);">&#9881;</div>
+      <div>
+        <div class="stage-title">3. Strength Model</div>
+        <div class="stage-subtitle">Calculating how good each team's attack and defence are</div>
+      </div>
+      <div class="stage-expand">&#9660;</div>
+    </div>
+    <div class="stage-body">
+      <div class="stage-content">
+        <div class="simple-explain">
+          Before simulating, the system works out how strong each team is. It looks at all their recent results and calculates an <strong>attack strength</strong> (how many goals they score compared to average) and a <strong>defence strength</strong> (how many they concede). Recent matches count more than older ones — a team on a hot streak is treated as stronger than their full-season average might suggest.
+        </div>
+
+        <div class="tech-details">
+          <div class="info-grid">
+            <div class="info-block">
+              <h4>Poisson Model</h4>
+              <p>Each team gets attack &amp; defence parameters relative to the league average. These become the &lambda; (expected goals) for any matchup.</p>
+              <span class="tag tag-py">StrengthCalculator</span>
+            </div>
+            <div class="info-block">
+              <h4>Time Decay</h4>
+              <p>Matches are weighted by age: <strong>100%</strong> (last 6 weeks), <strong>70%</strong> (6–12 weeks), <strong>40%</strong> (older). This makes the model reactive to form changes.</p>
+            </div>
+            <div class="info-block">
+              <h4>ELO Ratings</h4>
+              <p>A parallel ELO system (separate from Poisson) tracks each team's overall quality. Uses variable K-factor: K=20 for top leagues, K=40 for non-league.</p>
+              <span class="tag tag-py">EloCalculator</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="expert-details">
+          <div class="formula">
+            attack<sub>team</sub> = weighted_goals_scored / league_avg_goals
+          </div>
+          <div class="formula">
+            defence<sub>team</sub> = weighted_goals_conceded / league_avg_goals
+          </div>
+          <div class="formula">
+            &lambda;<sub>home</sub> = league_avg &times; attack<sub>home</sub> &times; defence<sub>away</sub>
+          </div>
+          <div class="formula">
+            &lambda;<sub>away</sub> = league_avg &times; attack<sub>away</sub> &times; defence<sub>home</sub>
+          </div>
+          <p style="color:var(--text-dim);font-size:0.85rem;margin-top:12px;">The <code>score_probability_matrix()</code> method generates an 11&times;11 matrix where cell <code>[i,j]</code> = P(home scores i, away scores j), computed as the outer product of two Poisson PMF vectors. The matrix sums to ~1 (truncation at 10 goals loses negligible probability mass for reasonable &lambda; values).</p>
+<pre><code># From poisson.py — score probability matrix
+home_probs = poisson.pmf(np.arange(max_goals + 1), lambda_home)
+away_probs = poisson.pmf(np.arange(max_goals + 1), lambda_away)
+matrix = np.outer(home_probs, away_probs)  # shape: (11, 11)</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage-connector"><div class="arrow">&#8595;</div></div>
+
+<!-- ─── STAGE 4: DIXON-COLES ─── -->
+<div class="stage">
+  <div class="stage-card" onclick="toggleCard(this)">
+    <div class="stage-header">
+      <div class="stage-icon" style="background:rgba(78,205,196,0.12);color:var(--accent5);">&#128200;</div>
+      <div>
+        <div class="stage-title">4. Dixon-Coles Correction</div>
+        <div class="stage-subtitle">Fixing the model's blind spot for low-scoring games</div>
+      </div>
+      <div class="stage-expand">&#9660;</div>
+    </div>
+    <div class="stage-body">
+      <div class="stage-content">
+        <div class="simple-explain">
+          A plain Poisson model gets most scores right, but it's bad at predicting low-scoring games — it under-predicts 0-0 and 1-0 results, and over-predicts 1-1 draws. The <strong>Dixon-Coles correction</strong> (from a famous 1997 paper) applies a small tweak to these specific scorelines to make the model more accurate.
+        </div>
+
+        <div class="tech-details">
+          <div class="info-grid">
+            <div class="info-block">
+              <h4>Correction Factor &tau;</h4>
+              <p>A multiplicative factor applied only to the four cells (0,0), (1,0), (0,1), (1,1) in the score probability matrix. Controlled by parameter &rho; &approx; &minus;0.13.</p>
+            </div>
+            <div class="info-block">
+              <h4>Effect</h4>
+              <p><strong>0-0 draws:</strong> probability increased<br>
+              <strong>1-0, 0-1:</strong> slightly reduced<br>
+              <strong>1-1 draws:</strong> reduced<br>
+              Matrix is re-normalised to sum to 1 after correction.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="expert-details">
+          <div class="formula">
+            &tau;(0,0) = 1 &minus; &lambda;<sub>h</sub> &middot; &lambda;<sub>a</sub> &middot; &rho;
+          </div>
+          <div class="formula">
+            &tau;(1,0) = 1 + &lambda;<sub>a</sub> &middot; &rho; &nbsp;&nbsp;|&nbsp;&nbsp; &tau;(0,1) = 1 + &lambda;<sub>h</sub> &middot; &rho;
+          </div>
+          <div class="formula">
+            &tau;(1,1) = 1 &minus; &rho;
+          </div>
+          <p style="color:var(--text-dim);font-size:0.85rem;margin-top:12px;">With &rho; = &minus;0.13 and typical lambdas (~1.3–1.5), &tau;(0,0) &approx; 1.23 (boosted), &tau;(1,1) &approx; 1.13 (also slightly boosted in absolute terms since &rho; is negative), and &tau;(1,0), &tau;(0,1) &lt; 1 (reduced). A safety guard returns &tau;=1 if the factor would go negative. The matrix is renormalised after applying corrections to maintain valid probabilities.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage-connector"><div class="arrow">&#8595;</div></div>
+
+<!-- ─── STAGE 5: MONTE CARLO ─── -->
+<div class="stage">
+  <div class="stage-card" onclick="toggleCard(this)">
+    <div class="stage-header">
+      <div class="stage-icon" style="background:rgba(108,99,255,0.12);color:var(--accent);">&#127922;</div>
+      <div>
+        <div class="stage-title">5. Monte Carlo Simulation</div>
+        <div class="stage-subtitle">Playing out the rest of the season 10,000 times</div>
+      </div>
+      <div class="stage-expand">&#9660;</div>
+    </div>
+    <div class="stage-body">
+      <div class="stage-content">
+        <div class="simple-explain">
+          This is the core of FootyPredict. The system takes every remaining fixture in the season and <strong>simulates the result of each match</strong> using the strength model. It then builds a final league table. It repeats this <strong>10,000 times</strong>, with each simulation producing slightly different random scores. By counting how often each team finishes in each position, we get a probability distribution — for example, "Team A has a 34% chance of finishing 1st, 28% chance of 2nd" and so on.
+        </div>
+
+        <div class="tech-details">
+          <div class="info-grid">
+            <div class="info-block">
+              <h4>Process</h4>
+              <p>1. Pre-compute &lambda; for all remaining fixtures<br>
+              2. For each simulation: sample goals from corrected Poisson, build final table<br>
+              3. Aggregate: count positions, compute mean points</p>
+            </div>
+            <div class="info-block">
+              <h4>Performance</h4>
+              <p>Goals are sampled via vectorised <code>np.random.Generator.poisson()</code>. Low-scoring outcomes go through Dixon-Coles rejection sampling. Target: 10,000 runs in &lt;10 seconds.</p>
+            </div>
+            <div class="info-block">
+              <h4>Output</h4>
+              <p>Per team: <code>mean_pos</code>, <code>mean_points</code>, and <code>pos_dist[]</code> — a probability vector where index 0 = P(finish 1st), index 1 = P(finish 2nd), etc.</p>
+              <span class="tag tag-py">TeamPrediction</span>
+            </div>
+            <div class="info-block">
+              <h4>Standings Logic</h4>
+              <p>Each simulated table is ranked by: Points (desc) &rarr; Goal Difference (desc) &rarr; Goals For (desc). Same rules as real league tables.</p>
+              <span class="tag tag-py">rank_standings()</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="expert-details">
+<pre><code># Simplified simulation loop (from simulator.py)
+for _ in range(10_000):
+    # Sample all fixture results at once (vectorised)
+    sampled_home = rng.poisson(lambdas_home)   # shape: (n_fixtures,)
+    sampled_away = rng.poisson(lambdas_away)
+
+    # Dixon-Coles correction for low-scoring games
+    for i, fixture in enumerate(remaining_fixtures):
+        if sampled_home[i] <= 1 and sampled_away[i] <= 1:
+            sampled_home[i], sampled_away[i] = dc_corrected_sample(...)
+
+    # Apply results to a copy of current standings
+    sim_standings = deepcopy(current_standings)
+    for i, fixture in enumerate(remaining_fixtures):
+        apply_result(sim_standings, fixture.home, fixture.away,
+                     sampled_home[i], sampled_away[i])
+
+    # Rank and record finishing positions
+    ranked = rank_standings(sim_standings)
+    for pos, team in enumerate(ranked):
+        position_counts[team][pos] += 1</code></pre>
+          <p style="color:var(--text-dim);font-size:0.85rem;margin-top:12px;">The rejection sampling for Dixon-Coles works by: sampling a score from the independent Poisson, computing &tau;, then accepting the sample with probability &tau;. If rejected, resample (up to 20 attempts, then fall back to raw Poisson). This approximates the full corrected distribution without needing to construct and sample from the full joint probability matrix for every fixture.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage-connector"><div class="arrow">&#8595;</div></div>
+
+<!-- ─── STAGE 6: API & WEB ─── -->
+<div class="stage">
+  <div class="stage-card" onclick="toggleCard(this)">
+    <div class="stage-header">
+      <div class="stage-icon" style="background:rgba(255,107,107,0.12);color:var(--accent3);">&#127912;</div>
+      <div>
+        <div class="stage-title">6. Web UI & API</div>
+        <div class="stage-subtitle">Displaying predictions and standings to users</div>
+      </div>
+      <div class="stage-expand">&#9660;</div>
+    </div>
+    <div class="stage-body">
+      <div class="stage-content">
+        <div class="simple-explain">
+          The results are displayed on a web dashboard. The <strong>homepage</strong> lists all tracked leagues. Click into a league to see the <strong>current standings table</strong> alongside the <strong>predicted final table</strong> — showing where the model thinks each team will finish. A colour-coded probability bar shows how confident the model is about each position. There's also a JSON API for programmatic access.
+        </div>
+
+        <div class="tech-details">
+          <div class="info-grid">
+            <div class="info-block">
+              <h4>Framework</h4>
+              <p>FastAPI with Jinja2 templates. Pico CSS for styling (classless semantic CSS). Chart.js for position distribution charts. Alpine.js for interactive elements.</p>
+              <span class="tag tag-html">Jinja2 + Pico CSS</span>
+            </div>
+            <div class="info-block">
+              <h4>Web Pages</h4>
+              <p><code>/</code> — League list<br>
+              <code>/league/{id}</code> — Standings + predictions<br>
+              <code>/admin/import</code> — CSV upload form</p>
+              <span class="tag tag-html">web/routes.py</span>
+            </div>
+            <div class="info-block">
+              <h4>JSON API</h4>
+              <p><code>GET /api/leagues</code> — List leagues<br>
+              <code>GET /api/leagues/{id}/table</code> — Standings<br>
+              <code>GET /api/predictions/{id}</code> — Latest prediction<br>
+              <code>POST /api/predictions/{id}/run</code> — Trigger simulation</p>
+              <span class="tag tag-api">FastAPI</span>
+            </div>
+            <div class="info-block">
+              <h4>Admin</h4>
+              <p><code>POST /admin/sync</code> — Pull data from all sources<br>
+              <code>POST /admin/import-csv</code> — Upload CSV results<br>
+              All admin endpoints require <code>X-Admin-Key</code> header.</p>
+              <span class="tag tag-api">Auth: X-Admin-Key</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="expert-details">
+          <p style="color:var(--text-dim);font-size:0.85rem;">The prediction table template renders a mini probability bar per team: each segment's width = probability of finishing in that position, opacity scales with probability. The top 3 most likely positions are shown as labels via a custom <code>| top_positions</code> Jinja2 filter that enumerates, sorts by probability descending, and slices.</p>
+<pre><code># Custom filter registered in routes.py
+def _top_positions(pos_dist, n=3):
+    indexed = list(enumerate(pos_dist))
+    indexed.sort(key=lambda x: x[1], reverse=True)
+    return indexed[:n]
+
+# Template usage:
+{% for idx, prob in team.pos_dist | top_positions %}
+  P({{ idx + 1 }}) {{ (prob * 100)|round(0)|int }}%
+{% endfor %}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /pipeline -->
+
+<!-- ═══════════════════════ GLOSSARY ═══════════════════════ -->
+<div style="padding-bottom:60px;">
+  <h2 style="text-align:center;font-size:1.5rem;margin-bottom:20px;">Glossary</h2>
+  <div class="glossary">
+    <div class="glossary-item">
+      <span class="glossary-term">Poisson Distribution</span>
+      <span class="glossary-def">A statistical distribution that models the number of events (goals) in a fixed interval, given a known average rate (&lambda;). Perfect for football because goals are relatively rare and roughly independent.</span>
+    </div>
+    <div class="glossary-item">
+      <span class="glossary-term">Monte Carlo</span>
+      <span class="glossary-def">A technique that uses repeated random sampling to estimate outcomes. Instead of calculating one prediction, we simulate thousands of possible seasons and look at the distribution of results.</span>
+    </div>
+    <div class="glossary-item">
+      <span class="glossary-term">Dixon-Coles</span>
+      <span class="glossary-def">A refinement to the basic Poisson model (published 1997) that corrects for the correlation between home and away goals in low-scoring matches. Named after its authors, Mark Dixon and Stuart Coles.</span>
+    </div>
+    <div class="glossary-item">
+      <span class="glossary-term">ELO Rating</span>
+      <span class="glossary-def">A rating system (originally from chess) where teams gain or lose points based on match results. Beating a strong team gives more points than beating a weak one. Used here alongside the Poisson model for an additional quality signal.</span>
+    </div>
+    <div class="glossary-item">
+      <span class="glossary-term">&lambda; (Lambda)</span>
+      <span class="glossary-def">The expected number of goals a team will score in a match. Computed from their attack strength and the opponent's defence strength. A &lambda; of 1.5 means the team is expected to score about 1.5 goals.</span>
+    </div>
+    <div class="glossary-item">
+      <span class="glossary-term">&rho; (Rho)</span>
+      <span class="glossary-def">The Dixon-Coles correlation parameter, typically around &minus;0.13. Negative values mean that low-scoring draws (0-0) happen more often than the independent Poisson model would predict.</span>
+    </div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<footer>
+  FootyPredict Infographic &middot; Generated from source code analysis &middot; Click each section to expand
+</footer>
+
+<script>
+  // ── Toggle stage cards ──
+  function toggleCard(card) {
+    card.classList.toggle('open');
+  }
+
+  // ── Depth switching ──
+  document.querySelectorAll('.depth-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.depth-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const depth = btn.dataset.depth;
+      document.body.className = 'depth-' + depth;
+    });
+  });
+
+  // ── Open first card by default ──
+  document.querySelector('.stage-card').classList.add('open');
+</script>
+</body>
+</html>

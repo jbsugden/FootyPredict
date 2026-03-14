@@ -80,14 +80,25 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
     all requests share the same in-memory DB as the test.
     """
     from predictor.api.app import create_app
-    from predictor.api.deps import get_db
+    from predictor.api.deps import get_db, get_app_settings
+    from predictor.config import Settings
 
     app = create_app()
 
     async def override_get_db():
         yield db_session
 
+    def override_settings() -> Settings:
+        return Settings(
+            ADMIN_API_KEY="change_me",
+            DATABASE_URL="sqlite+aiosqlite:///:memory:",
+            FOOTBALL_DATA_API_KEY="test_key",
+            DEBUG=False,
+            _env_file=None,
+        )
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_app_settings] = override_settings
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

@@ -42,9 +42,8 @@
           </div>
           <small class="pos-prob-label">
             <!-- Show top-3 most likely positions -->
-            {% set sorted_dist = team.pos_dist | enumerate | sort(attribute='1', reverse=True) %}
-            {% for idx, prob in sorted_dist[:3] %}
-              P({{ loop.index }}) {{ (prob * 100)|round(0)|int }}%
+            {% for idx, prob in team.pos_dist | top_positions %}
+              P({{ idx + 1 }}) {{ (prob * 100)|round(0)|int }}%
               {%- if not loop.last %}&nbsp;&middot;{% endif %}
             {% endfor %}
           </small>
