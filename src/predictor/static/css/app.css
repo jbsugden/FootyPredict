@@ -1,0 +1,129 @@
+/* =========================================================================
+   FootyPredict — Custom Application Styles
+   Builds on top of Pico CSS (classless/minimal).
+   ========================================================================= */
+
+/* -------------------------------------------------------------------------
+   Brand colours
+   ------------------------------------------------------------------------- */
+:root {
+  --fp-win: #2e7d32;       /* green */
+  --fp-draw: #f9a825;      /* amber */
+  --fp-loss: #c62828;      /* red */
+  --fp-champion: #f9a825;  /* gold highlight for 1st place */
+  --fp-europe: #1565c0;    /* blue highlight for European places */
+  --fp-relegation: #c62828;/* red highlight for relegation zone */
+  --fp-bar-height: 12px;
+  --fp-prob-bar-bg: #e0e0e0;
+}
+
+/* -------------------------------------------------------------------------
+   Navigation brand link
+   ------------------------------------------------------------------------- */
+nav .brand {
+  font-size: 1.25rem;
+  text-decoration: none;
+}
+
+/* -------------------------------------------------------------------------
+   Form result badges (W / D / L)
+   ------------------------------------------------------------------------- */
+.form-badge {
+  display: inline-block;
+  width: 1.4rem;
+  height: 1.4rem;
+  line-height: 1.4rem;
+  text-align: center;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 1px;
+}
+
+.form-W { background-color: var(--fp-win); }
+.form-D { background-color: var(--fp-draw); color: #333; }
+.form-L { background-color: var(--fp-loss); }
+
+/* -------------------------------------------------------------------------
+   Standings table row highlights
+   ------------------------------------------------------------------------- */
+.standings-row.pos-champion td:first-child {
+  border-left: 4px solid var(--fp-champion);
+}
+.standings-row.pos-europe td:first-child {
+  border-left: 4px solid var(--fp-europe);
+}
+.standings-row.pos-relegation td:first-child {
+  border-left: 4px solid var(--fp-relegation);
+}
+
+/* -------------------------------------------------------------------------
+   Table responsiveness wrapper
+   ------------------------------------------------------------------------- */
+.table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* -------------------------------------------------------------------------
+   Position probability mini-bar (prediction table)
+   ------------------------------------------------------------------------- */
+.pos-prob-cell {
+  min-width: 160px;
+}
+
+.pos-prob-bar {
+  display: flex;
+  height: var(--fp-bar-height);
+  background: var(--fp-prob-bar-bg);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.pos-prob-segment {
+  height: 100%;
+  background: linear-gradient(90deg, #1565c0 0%, #42a5f5 100%);
+  min-width: 2px;
+}
+
+.pos-prob-label {
+  font-size: 0.7rem;
+  color: var(--pico-muted-color, #666);
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------------------
+   Source badge (data source indicator on index page)
+   ------------------------------------------------------------------------- */
+.source-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--pico-secondary-background, #e0e0e0);
+  font-size: 0.75rem;
+  font-family: monospace;
+}
+
+/* -------------------------------------------------------------------------
+   Chart container spacing
+   ------------------------------------------------------------------------- */
+#confidence-chart canvas {
+  max-width: 100%;
+}
+
+/* -------------------------------------------------------------------------
+   Footer
+   ------------------------------------------------------------------------- */
+footer {
+  margin-top: 3rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--pico-muted-border-color, #ddd);
+  text-align: center;
+}
+
+/* -------------------------------------------------------------------------
+   Alpine.js x-cloak (hide elements before Alpine initialises)
+   ------------------------------------------------------------------------- */
+[x-cloak] { display: none !important; }

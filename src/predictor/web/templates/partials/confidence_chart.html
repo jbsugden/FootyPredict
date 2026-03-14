@@ -1,0 +1,51 @@
+<!--
+  Partial: confidence_chart.html
+  Renders a Chart.js stacked bar chart showing the position probability
+  distribution for each team.
+
+  Context variables expected:
+    predicted_table — list of dicts with team_name and pos_dist
+    n_teams         — number of teams
+-->
+
+{% if predicted_table %}
+<div style="position:relative; height:400px; width:100%;">
+  <canvas id="positionDistChart"></canvas>
+</div>
+
+<script>
+  // Build datasets for Chart.js stacked bar chart.
+  // Each dataset represents one finishing position; each bar represents one team.
+  document.addEventListener('DOMContentLoaded', function () {
+    const teams = {{ predicted_table | map(attribute='team_name') | list | tojson }};
+    const posData = {{ predicted_table | map(attribute='pos_dist') | list | tojson }};
+    const nTeams = {{ n_teams }};
+
+    // Palette: gradient from gold (1st) to dark red (last)
+    function posColour(pos, total) {
+      const ratio = pos / total;
+      const r = Math.round(200 * ratio + 55 * (1 - ratio));
+      const g = Math.round(170 * (1 - ratio));
+      const b = Math.round(30 * (1 - ratio));
+      return `rgba(${r}, ${g}, ${b}, 0.75)`;
+    }
+
+    const datasets = [];
+    for (let posIdx = 0; posIdx < nTeams; posIdx++) {
+      datasets.push({
+        label: `${posIdx + 1}${posIdx === 0 ? 'st' : posIdx === 1 ? 'nd' : posIdx === 2 ? 'rd' : 'th'}`,
+        data: posData.map(dist => dist[posIdx] !== undefined ? +(dist[posIdx] * 100).toFixed(2) : 0),
+        backgroundColor: posColour(posIdx + 1, nTeams),
+        borderWidth: 0,
+      });
+    }
+
+    const ctx = document.getElementById('positionDistChart');
+    if (ctx) {
+      FootyPredict.renderPositionChart(ctx, teams, datasets);
+    }
+  });
+</script>
+{% else %}
+<p><em>Run a prediction to see the position distribution chart.</em></p>
+{% endif %}

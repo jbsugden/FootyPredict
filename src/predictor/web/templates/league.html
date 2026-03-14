@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}{{ league.name }} — FootyPredict{% endblock %}
+
+{% block content %}
+<hgroup>
+  <h1>{{ league.name }}</h1>
+  <p>Season {{ league.current_season }} &mdash; Tier {{ league.tier }}</p>
+</hgroup>
+
+<!-- Re-run prediction button (HTMX POST to API, admin key required) -->
+<div x-data="{ apiKey: '', loading: false, message: '' }">
+  <details>
+    <summary role="button" class="outline secondary" style="display:inline-block">
+      Re-run Prediction
+    </summary>
+    <article>
+      <label for="admin-key">Admin Key</label>
+      <input
+        id="admin-key"
+        type="password"
+        x-model="apiKey"
+        placeholder="Enter X-Admin-Key"
+      />
+      <button
+        @click="
+          loading = true;
+          message = '';
+          fetch('/api/predictions/{{ league.id }}/run', {
+            method: 'POST',
+            headers: { 'X-Admin-Key': apiKey }
+          })
+          .then(r => r.json())
+          .then(d => { message = d.message || JSON.stringify(d); loading = false; })
+          .catch(e => { message = 'Error: ' + e; loading = false; });
+        "
+        :disabled="loading"
+        :aria-busy="loading"
+      >
+        <span x-show="!loading">Run Simulation</span>
+        <span x-show="loading">Running&hellip;</span>
+      </button>
+      <p x-show="message" x-text="message" style="margin-top:0.5rem;"></p>
+    </article>
+  </details>
+</div>
+
+<hr />
+
+<!-- Two-column layout: current standings (left) | predicted table (right) -->
+<div class="grid">
+
+  <!-- ---------------------------------------------------------------- -->
+  <!-- Left column: current standings -->
+  <!-- ---------------------------------------------------------------- -->
+  <section>
+    <h2>Current Standings</h2>
+    <div
+      id="standings-table"
+      hx-get="/api/leagues/{{ league.id }}/table"
+      hx-trigger="load"
+      hx-swap="innerHTML"
+    >
+      {% include "partials/standings_table.html" %}
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <!-- Right column: predicted final table -->
+  <!-- ---------------------------------------------------------------- -->
+  <section>
+    <h2>
+      Predicted Final Table
+      {% if prediction %}
+        <small style="font-weight:normal;font-size:0.8rem;">
+          Generated {{ prediction.generated_at.strftime('%d %b %Y %H:%M') }} UTC
+          &middot; {{ "{:,}".format(prediction.simulation_runs) }} simulations
+        </small>
+      {% endif %}
+    </h2>
+    <div id="prediction-table">
+      {% include "partials/prediction_table.html" %}
+    </div>
+  </section>
+
+</div>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- Position distribution chart (full width below the tables) -->
+<!-- ------------------------------------------------------------------ -->
+{% if prediction %}
+<section>
+  <h2>Position Distribution</h2>
+  <div id="confidence-chart">
+    {% include "partials/confidence_chart.html" %}
+  </div>
+</section>
+{% endif %}
+
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+  // Update nav link highlight for current league
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  });
+</script>
+{% endblock %}

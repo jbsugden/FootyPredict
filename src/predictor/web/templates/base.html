@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}FootyPredict{% endblock %}</title>
+
+  <!-- Pico CSS — classless semantic CSS framework -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+  />
+
+  <!-- Chart.js — used for position distribution charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" defer></script>
+
+  <!-- Alpine.js — lightweight reactive UI -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"
+    defer
+  ></script>
+
+  <!-- HTMX — hypermedia-driven interactions -->
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+
+  <!-- Application styles -->
+  <link rel="stylesheet" href="/static/css/app.css" />
+
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body>
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Navigation -->
+  <!-- ------------------------------------------------------------------ -->
+  <nav class="container-fluid">
+    <ul>
+      <li>
+        <a href="/" class="brand">
+          <strong>FootyPredict</strong>
+        </a>
+      </li>
+    </ul>
+    <ul>
+      <!-- Quick-links to the two primary leagues -->
+      <li>
+        <a href="/league/premier-league" id="nav-pl">Premier League</a>
+      </li>
+      <li>
+        <a href="/league/npl-west" id="nav-npl-w">NPL West</a>
+      </li>
+      <li>
+        <a href="/admin/import" role="button" class="outline secondary" style="font-size: 0.85rem;">
+          Import CSV
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Flash messages (Alpine.js) -->
+  <!-- ------------------------------------------------------------------ -->
+  <div class="container" x-data="{ show: true }">
+    {% block flash %}{% endblock %}
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Main content -->
+  <!-- ------------------------------------------------------------------ -->
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Footer -->
+  <!-- ------------------------------------------------------------------ -->
+  <footer class="container-fluid">
+    <small>
+      FootyPredict &mdash; Dixon-Coles Monte Carlo simulation &mdash;
+      Data from
+      <a href="https://www.football-data.org/" target="_blank" rel="noopener">
+        football-data.org
+      </a>
+      &amp;
+      <a href="https://fulltime.thefa.com/" target="_blank" rel="noopener">
+        FA Full Time
+      </a>
+    </small>
+  </footer>
+
+  <!-- Application JavaScript -->
+  <script src="/static/js/charts.js" defer></script>
+
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

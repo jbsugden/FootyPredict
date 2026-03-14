@@ -1,0 +1,65 @@
+<!--
+  Partial: standings_table.html
+  Renders the current league standings table.
+  Can be returned as a standalone HTMX fragment from GET /api/leagues/{id}/table.
+
+  Context variables expected:
+    standings  — list of TeamSeason objects sorted by position
+    team_map   — dict of team_id -> Team object
+-->
+
+{% if standings %}
+<div class="table-responsive">
+  <table role="grid" class="standings-table">
+    <thead>
+      <tr>
+        <th scope="col" title="Position">#</th>
+        <th scope="col">Team</th>
+        <th scope="col" title="Played">P</th>
+        <th scope="col" title="Won">W</th>
+        <th scope="col" title="Drawn">D</th>
+        <th scope="col" title="Lost">L</th>
+        <th scope="col" title="Goals For">GF</th>
+        <th scope="col" title="Goals Against">GA</th>
+        <th scope="col" title="Goal Difference">GD</th>
+        <th scope="col" title="Points">Pts</th>
+        <th scope="col" title="Last 5 results">Form</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ts in standings %}
+      {% set pos = loop.index %}
+      <tr class="standings-row {% if pos == 1 %}pos-champion{% elif pos <= 4 %}pos-europe{% elif pos >= standings|length - 2 %}pos-relegation{% endif %}">
+        <td>{{ pos }}</td>
+        <td>
+          <strong>
+            {% if team_map and ts.team_id in team_map %}
+              {{ team_map[ts.team_id].name }}
+            {% else %}
+              {{ ts.team_id }}
+            {% endif %}
+          </strong>
+        </td>
+        <td>{{ ts.played }}</td>
+        <td>{{ ts.won }}</td>
+        <td>{{ ts.drawn }}</td>
+        <td>{{ ts.lost }}</td>
+        <td>{{ ts.goals_for }}</td>
+        <td>{{ ts.goals_against }}</td>
+        <td>{{ ts.goals_for - ts.goals_against }}</td>
+        <td><strong>{{ ts.points }}</strong></td>
+        <td class="form-cell">
+          {% for result in ts.form %}
+            <span class="form-badge form-{{ result|upper }}">{{ result|upper }}</span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>
+  <em>No standings data available yet. Run a data sync to populate the table.</em>
+</p>
+{% endif %}

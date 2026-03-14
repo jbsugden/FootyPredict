@@ -1,0 +1,64 @@
+<!--
+  Partial: prediction_table.html
+  Renders the predicted final league table with position probability mini-bars.
+
+  Context variables expected:
+    predicted_table — list of dicts: {team_id, team_name, mean_pos, mean_points, pos_dist}
+    n_teams         — total number of teams in the league (for bar width scaling)
+-->
+
+{% if predicted_table %}
+<div class="table-responsive">
+  <table role="grid" class="prediction-table">
+    <thead>
+      <tr>
+        <th scope="col" title="Predicted position (mean)">&Oslash; Pos</th>
+        <th scope="col">Team</th>
+        <th scope="col" title="Mean predicted points">&Oslash; Pts</th>
+        <th scope="col" title="Probability of finishing in each position">Position Probability</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for team in predicted_table %}
+      <tr>
+        <td>{{ "%.1f"|format(team.mean_pos) }}</td>
+        <td><strong>{{ team.team_name }}</strong></td>
+        <td>{{ "%.1f"|format(team.mean_points) }}</td>
+        <td class="pos-prob-cell">
+          <!--
+            Mini probability bar: each segment represents the probability of
+            finishing in that position. Width is proportional to the probability.
+          -->
+          <div class="pos-prob-bar" title="Position distribution">
+            {% for prob in team.pos_dist %}
+            {% if prob > 0.001 %}
+            <div
+              class="pos-prob-segment"
+              style="width: {{ (prob * 100)|round(1) }}%; opacity: {{ 0.3 + prob * 0.7 }};"
+              title="P(pos {{ loop.index }}) = {{ (prob * 100)|round(1) }}%"
+            ></div>
+            {% endif %}
+            {% endfor %}
+          </div>
+          <small class="pos-prob-label">
+            <!-- Show top-3 most likely positions -->
+            {% set sorted_dist = team.pos_dist | enumerate | sort(attribute='1', reverse=True) %}
+            {% for idx, prob in sorted_dist[:3] %}
+              P({{ loop.index }}) {{ (prob * 100)|round(0)|int }}%
+              {%- if not loop.last %}&nbsp;&middot;{% endif %}
+            {% endfor %}
+          </small>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<article>
+  <p>
+    <em>No prediction available yet.</em> Click <strong>Re-run Prediction</strong> above
+    to generate a Monte Carlo simulation.
+  </p>
+</article>
+{% endif %}

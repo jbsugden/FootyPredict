@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Import CSV — FootyPredict Admin{% endblock %}
+
+{% block content %}
+<hgroup>
+  <h1>Admin: Import Match Data</h1>
+  <p>Upload a CSV file to bulk-import historical match results.</p>
+</hgroup>
+
+<hr />
+
+<article x-data="{ uploading: false, result: null, error: null }">
+  <header><strong>CSV Import Form</strong></header>
+
+  <p>
+    The CSV file must have the following columns (with a header row):
+  </p>
+  <pre><code>date,home_team,away_team,home_goals,away_goals,league_code,season</code></pre>
+  <ul>
+    <li><code>date</code> — format <code>DD/MM/YYYY</code></li>
+    <li><code>home_team</code> / <code>away_team</code> — full club names</li>
+    <li><code>home_goals</code> / <code>away_goals</code> — integers</li>
+    <li><code>league_code</code> — e.g. <code>PL</code>, <code>NPL_W</code></li>
+    <li><code>season</code> — e.g. <code>2024-25</code></li>
+  </ul>
+
+  <form
+    @submit.prevent="
+      uploading = true;
+      result = null;
+      error = null;
+      const fd = new FormData($el);
+      const key = document.getElementById('csv-admin-key').value;
+      fetch('/admin/import-csv', {
+        method: 'POST',
+        headers: { 'X-Admin-Key': key },
+        body: fd
+      })
+      .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+      .then(({ ok, data }) => {
+        uploading = false;
+        if (ok) { result = data; }
+        else { error = data.detail || JSON.stringify(data); }
+      })
+      .catch(e => { uploading = false; error = String(e); });
+    "
+  >
+    <label for="csv-admin-key">
+      Admin Key (X-Admin-Key)
+      <input
+        id="csv-admin-key"
+        type="password"
+        placeholder="Enter your admin API key"
+        required
+      />
+    </label>
+
+    <label for="csv-file">
+      CSV File
+      <input
+        id="csv-file"
+        name="file"
+        type="file"
+        accept=".csv,text/csv"
+        required
+      />
+    </label>
+
+    <button type="submit" :disabled="uploading" :aria-busy="uploading">
+      <span x-show="!uploading">Upload &amp; Import</span>
+      <span x-show="uploading">Uploading&hellip;</span>
+    </button>
+  </form>
+
+  <!-- Success result -->
+  <div x-show="result" x-cloak>
+    <hr />
+    <p>
+      <strong x-text="result && result.message"></strong>
+    </p>
+    <ul>
+      <li>Rows processed: <strong x-text="result && result.rows_processed"></strong></li>
+      <li>Rows failed: <strong x-text="result && result.rows_failed"></strong></li>
+    </ul>
+    <template x-if="result && result.errors && result.errors.length > 0">
+      <details>
+        <summary>Errors (<span x-text="result.errors.length"></span>)</summary>
+        <ul>
+          <template x-for="err in result.errors" :key="err">
+            <li x-text="err"></li>
+          </template>
+        </ul>
+      </details>
+    </template>
+  </div>
+
+  <!-- Error display -->
+  <div x-show="error" x-cloak>
+    <hr />
+    <p role="alert">
+      <strong>Error:</strong> <span x-text="error"></span>
+    </p>
+  </div>
+</article>
+
+<article>
+  <header><strong>Trigger Data Sync</strong></header>
+  <p>Pull fresh data from all configured API / scraper sources.</p>
+  <div x-data="{ syncing: false, syncResult: null, syncKey: '' }">
+    <label for="sync-key">
+      Admin Key
+      <input id="sync-key" type="password" x-model="syncKey" placeholder="Admin API key" />
+    </label>
+    <button
+      @click="
+        syncing = true;
+        syncResult = null;
+        fetch('/admin/sync', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': syncKey }
+        })
+        .then(r => r.json())
+        .then(d => { syncResult = d; syncing = false; })
+        .catch(e => { syncResult = { message: String(e) }; syncing = false; });
+      "
+      :disabled="syncing"
+      :aria-busy="syncing"
+      class="outline"
+    >
+      <span x-show="!syncing">Sync Now</span>
+      <span x-show="syncing">Syncing&hellip;</span>
+    </button>
+    <p x-show="syncResult" x-text="syncResult && syncResult.message" style="margin-top:0.5rem;"></p>
+  </div>
+</article>
+
+{% endblock %}

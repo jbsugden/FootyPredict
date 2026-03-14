@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}FootyPredict — Home{% endblock %}
+
+{% block content %}
+<hgroup>
+  <h1>FootyPredict</h1>
+  <p>Monte Carlo league table predictions powered by the Dixon-Coles Poisson model.</p>
+</hgroup>
+
+<hr />
+
+{% if leagues %}
+  <h2>Tracked Leagues</h2>
+  <div class="grid">
+    {% for league in leagues %}
+    <article>
+      <header>
+        <strong>Tier {{ league.tier }}</strong>
+      </header>
+      <h3>{{ league.name }}</h3>
+      <p>
+        Season: <strong>{{ league.current_season }}</strong><br />
+        Code: <code>{{ league.code }}</code><br />
+        Source: <span class="source-badge">{{ league.data_source }}</span>
+      </p>
+      <footer>
+        <a
+          href="/league/{{ league.id }}"
+          role="button"
+          class="contrast"
+        >
+          View Table &amp; Predictions &rarr;
+        </a>
+      </footer>
+    </article>
+    {% endfor %}
+  </div>
+
+{% else %}
+  <article>
+    <header><strong>No leagues configured yet.</strong></header>
+    <p>
+      Use the admin panel to seed league data, or run the importer to pull
+      data from football-data.org.
+    </p>
+    <footer>
+      <a href="/admin/import" role="button">Import CSV</a>
+    </footer>
+  </article>
+{% endif %}
+{% endblock %}
