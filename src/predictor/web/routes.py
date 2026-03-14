@@ -110,6 +110,25 @@ async def league_detail(
     pred_repo = PredictionRepository(db)
     prediction = await pred_repo.get_latest(league_id, league.current_season)
 
+    # Prediction history for timeline chart
+    prediction_history = await pred_repo.get_history(league_id, league.current_season, limit=50)
+
+    timeline_data = None
+    if len(prediction_history) > 1:
+        chronological = list(reversed(prediction_history))
+        timeline_data = {
+            "dates": [p.generated_at.strftime("%d %b") for p in chronological],
+            "teams": {},
+        }
+        for pred in chronological:
+            for tid, data in pred.results.items():
+                if tid.startswith("__"):
+                    continue
+                name = team_map.get(tid, None) and team_map[tid].name or tid
+                timeline_data["teams"].setdefault(name, []).append(
+                    data.get("mean_pos")
+                )
+
     predicted_table = []
     n_teams = len(teams)
     if prediction:
@@ -145,6 +164,7 @@ async def league_detail(
             "prediction": prediction,
             "n_teams": n_teams,
             "zone_classes": zone_classes,
+            "timeline_data": timeline_data,
             "nav_leagues": nav_leagues,
         },
     )
@@ -217,6 +237,20 @@ async def team_detail(
     pred_repo = PredictionRepository(db)
     prediction = await pred_repo.get_latest(league_id, league.current_season)
 
+    # Team prediction timeline
+    team_timeline = None
+    if prediction:
+        history = await pred_repo.get_history(league_id, league.current_season, limit=50)
+        if len(history) > 1:
+            chronological = list(reversed(history))
+            team_timeline = {
+                "dates": [p.generated_at.strftime("%d %b") for p in chronological],
+                "positions": [
+                    p.results.get(team_id, {}).get("mean_pos")
+                    for p in chronological
+                ],
+            }
+
     team_prediction = None
     team_zones = []
     if prediction and team_id in prediction.results:
@@ -257,6 +291,7 @@ async def team_detail(
             "team_prediction": team_prediction,
             "prediction": prediction,
             "team_zones": team_zones,
+            "team_timeline": team_timeline,
             "recent_results": recent_results,
             "toughest": toughest,
             "easiest": easiest,

@@ -168,9 +168,158 @@
     });
   }
 
+  /**
+   * Generate N visually distinct colours using evenly spaced hues.
+   *
+   * @param {number} n - Number of colours needed.
+   * @param {number} [alpha=1] - Opacity (0–1).
+   * @returns {string[]} Array of HSLA colour strings.
+   */
+  function _teamPalette(n, alpha) {
+    if (alpha === undefined) alpha = 1;
+    return Array.from({ length: n }, (_, i) => {
+      const hue = (i * 360) / n;
+      return `hsla(${hue}, 70%, 50%, ${alpha})`;
+    });
+  }
+
+  /**
+   * Render a multi-team prediction timeline (line chart).
+   *
+   * X-axis = date labels, Y-axis = predicted position (1 at top).
+   * One line per team, with clickable legend to toggle visibility.
+   *
+   * @param {HTMLCanvasElement} canvas - Target canvas element.
+   * @param {string[]} dates - Date labels for the x-axis.
+   * @param {Object<string, number[]>} teamsData - { teamName: [pos, pos, ...] }
+   * @param {number} nTeams - Total teams in the league (for y-axis max).
+   * @returns {import("chart.js").Chart} The created Chart.js instance.
+   */
+  function renderTimelineChart(canvas, dates, teamsData, nTeams) {
+    if (typeof Chart === "undefined") {
+      console.error("FootyPredict: Chart.js is not loaded.");
+      return null;
+    }
+
+    const teamNames = Object.keys(teamsData);
+    const colours = _teamPalette(teamNames.length);
+
+    const datasets = teamNames.map((name, i) => ({
+      label: name,
+      data: teamsData[name],
+      borderColor: colours[i],
+      backgroundColor: colours[i],
+      borderWidth: 2,
+      pointRadius: 2,
+      pointHoverRadius: 5,
+      tension: 0.3,
+      fill: false,
+    }));
+
+    return new Chart(canvas, {
+      type: "line",
+      data: { labels: dates, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            reverse: true,
+            min: 1,
+            max: nTeams,
+            title: { display: true, text: "Predicted Position" },
+            ticks: { stepSize: 1, font: { size: 11 } },
+          },
+          x: {
+            ticks: { maxRotation: 45, minRotation: 30, font: { size: 11 } },
+          },
+        },
+        plugins: {
+          legend: {
+            display: true,
+            position: "bottom",
+            labels: { boxWidth: 12, font: { size: 11 } },
+          },
+          tooltip: {
+            callbacks: {
+              label: (item) =>
+                `${item.dataset.label}: ${Number(item.parsed.y).toFixed(1)}`,
+            },
+          },
+        },
+        animation: { duration: 600, easing: "easeOutQuart" },
+      },
+    });
+  }
+
+  /**
+   * Render a single-team prediction timeline (line chart with fill).
+   *
+   * @param {HTMLCanvasElement} canvas - Target canvas element.
+   * @param {string[]} dates - Date labels for the x-axis.
+   * @param {number[]} positions - Predicted position over time.
+   * @param {string} teamName - Team name for the chart title.
+   * @param {number} nTeams - Total teams for y-axis max.
+   * @returns {import("chart.js").Chart} The created Chart.js instance.
+   */
+  function renderTeamTimelineChart(canvas, dates, positions, teamName, nTeams) {
+    if (typeof Chart === "undefined") {
+      console.error("FootyPredict: Chart.js is not loaded.");
+      return null;
+    }
+
+    return new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: dates,
+        datasets: [
+          {
+            label: teamName,
+            data: positions,
+            borderColor: "hsla(210, 70%, 50%, 1)",
+            backgroundColor: "hsla(210, 70%, 50%, 0.15)",
+            borderWidth: 2.5,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            tension: 0.3,
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            reverse: true,
+            min: 1,
+            max: nTeams,
+            title: { display: true, text: "Predicted Position" },
+            ticks: { stepSize: 1, font: { size: 11 } },
+          },
+          x: {
+            ticks: { maxRotation: 45, minRotation: 30, font: { size: 11 } },
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          title: { display: true, text: `${teamName} — Position Over Time` },
+          tooltip: {
+            callbacks: {
+              label: (item) => `Position: ${Number(item.parsed.y).toFixed(1)}`,
+            },
+          },
+        },
+        animation: { duration: 600, easing: "easeOutQuart" },
+      },
+    });
+  }
+
   // Expose public API
   global.FootyPredict = {
     renderPositionChart,
     renderSingleTeamChart,
+    renderTimelineChart,
+    renderTeamTimelineChart,
   };
 })(window);

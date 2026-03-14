@@ -83,6 +83,13 @@
     <div style="position:relative; height:250px; width:100%;">
       <canvas id="teamPosChart"></canvas>
     </div>
+
+    {% if team_timeline %}
+    <h3 style="margin-top:1.5rem;">Position Over Time</h3>
+    <div style="position:relative; height:200px; width:100%;">
+      <canvas id="teamTimelineChart"></canvas>
+    </div>
+    {% endif %}
     {% else %}
     <article>
       <p><em>Run a prediction first to see position distribution data.</em></p>
@@ -261,6 +268,19 @@
     if (ctx && window.FootyPredict) {
       FootyPredict.renderSingleTeamChart(ctx, posProbs, teamName);
     }
+
+    {% if team_timeline %}
+    const tlCanvas = document.getElementById('teamTimelineChart');
+    if (tlCanvas && window.FootyPredict) {
+      FootyPredict.renderTeamTimelineChart(
+        tlCanvas,
+        {{ team_timeline.dates | tojson }},
+        {{ team_timeline.positions | tojson }},
+        teamName,
+        posProbs.length
+      );
+    }
+    {% endif %}
   });
 </script>
 {% endif %}
