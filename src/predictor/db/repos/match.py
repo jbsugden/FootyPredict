@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,7 +123,7 @@ class MatchRepository:
             Match.played_at == match_data["played_at"],
         )
         result = await self._session.execute(stmt)
-        existing = result.scalar_one_or_none()
+        existing = result.scalars().first()
 
         if existing is not None:
             # Update mutable fields
@@ -136,7 +136,7 @@ class MatchRepository:
             ):
                 if field in match_data:
                     setattr(existing, field, match_data[field])
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = datetime.now(tz=timezone.utc)
             return existing
 
         new_match = Match(**match_data)

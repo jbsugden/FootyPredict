@@ -47,6 +47,11 @@ def _get_weight(played_at: datetime, now: datetime | None = None) -> float:
     """
     if now is None:
         now = datetime.now(tz=timezone.utc)
+    # Normalise: if played_at is naive, assume UTC
+    if played_at.tzinfo is None:
+        played_at = played_at.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     weeks_ago = (now - played_at).days / 7.0
     if weeks_ago <= WEEKS_RECENT:
         return WEIGHT_RECENT

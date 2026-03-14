@@ -1,61 +1,70 @@
-"""Data source adapter for FA Full Time (https://fulltime.thefa.com/).
+"""Data source adapter for the Northern Premier League (NPL) API.
 
-Uses httpx for async HTTP and BeautifulSoup4 for HTML parsing.
-Polite scraping defaults: 2-second delay between requests and a realistic
-browser User-Agent header.
+The NPL website (thenpl.co.uk) exposes a JSON REST API at api.thenpl.co.uk.
+All requests require the ``X-TENANT-ID: npl`` header.
 
-NOTE: Web scraping is subject to site terms of service. Verify that your use
-case is permitted before deploying. The FA Full Time site structure may change
-without notice — check the TODO comments and update selectors accordingly.
+This module is named fa_fulltime_scraper for historical compatibility but
+now uses the official NPL API — no HTML scraping required.
 
-TODO: Obtain the correct base URL and form POST parameters by inspecting the
-      FA Full Time site with browser dev tools.
-TODO: Replace all CSS/XPath selectors with ones validated against live HTML.
+API details discovered via browser inspection of thenpl.co.uk:
+  - Base: https://api.thenpl.co.uk
+  - Auth: X-TENANT-ID: npl  (no API key needed)
+  - Matches: GET /matches?competition={id}&limit=100&page={n}
+  - Status values: "FullTime" (played), "NotKickedOff" (scheduled),
+                   "Postponed", "Cancelled", "Abandoned"
+
+NPL West Division ID: 67d7c7bb74247876e6dae40d
 """
 
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from collections import defaultdict
 
 import httpx
 import structlog
-from bs4 import BeautifulSoup, Tag
 
 from predictor.data.base import AbstractLeagueSource, MatchData, StandingRow, TeamData
 from predictor.db.models import MatchStatus
 
 logger = structlog.get_logger(__name__)
 
-# Base URL for FA Full Time
-# TODO: Confirm the correct base URL — it may be regional/league-specific
-_BASE_URL = "https://fulltime.thefa.com"
+_BASE_URL = "https://api.thenpl.co.uk"
+_TENANT_ID = "npl"
+_PAGE_SIZE = 100
+_REQUEST_DELAY_SECONDS = 1.0
 
-# Polite scraping delay between requests (seconds)
-_REQUEST_DELAY_SECONDS = 2.0
+# Competition IDs from the NPL API (discovered 2026-03)
+COMPETITION_ID_MAP: dict[str, str] = {
+    "NPL_W": "67d7c7bb74247876e6dae40d",   # Northern Premier League West
+    "NPL_P": "67d7c7bb74247876e6dae40a",   # Northern Premier League Premier
+    "NPL_E": "67d7c7bb74247876e6dae40b",   # Northern Premier League East
+    "NPL_M": "67d7c7bb74247876e6dae40c",   # Northern Premier League Midlands
+}
 
-# Realistic browser User-Agent to avoid bot-blocking
-_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
-
-# Mapping from our league codes to FA Full Time division IDs / URL slugs
-# TODO: Find the correct division IDs from the FA Full Time site
-DIVISION_ID_MAP: dict[str, str] = {
-    "NPL_W": "NPL_WEST",  # Northern Premier League West — placeholder
+_STATUS_MAP: dict[str, MatchStatus] = {
+    "FullTime": MatchStatus.FINISHED,
+    "NotKickedOff": MatchStatus.SCHEDULED,
+    "Postponed": MatchStatus.POSTPONED,
+    "Cancelled": MatchStatus.CANCELLED,
+    "Abandoned": MatchStatus.CANCELLED,
+    "HalfTime": MatchStatus.SCHEDULED,   # In-play — treat as not yet finished
+    "InProgress": MatchStatus.SCHEDULED,
 }
 
 
 class FAFullTimeScraper:
-    """Scrapes league standings and results from FA Full Time.
+    """Fetches NPL standings and fixtures from the thenpl.co.uk JSON API.
+
+    Despite the class name (kept for import compatibility), this adapter
+    uses a JSON REST API — not HTML scraping.
 
     Implements :class:`~predictor.data.base.AbstractLeagueSource`.
 
     Args:
         client: Optional pre-configured :class:`httpx.AsyncClient`. If not
-            provided a new one is created. Call :meth:`aclose` when done.
+            provided, a new client is created. Call :meth:`aclose` when done.
     """
 
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
@@ -63,9 +72,10 @@ class FAFullTimeScraper:
         self._client = client or httpx.AsyncClient(
             base_url=_BASE_URL,
             headers={
-                "User-Agent": _USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-GB,en;q=0.5",
+                "X-TENANT-ID": _TENANT_ID,
+                "Accept": "application/json",
+                "Origin": "https://www.thenpl.co.uk",
+                "Referer": "https://www.thenpl.co.uk/",
             },
             timeout=30.0,
             follow_redirects=True,
@@ -76,68 +86,144 @@ class FAFullTimeScraper:
         if self._owns_client:
             await self._client.aclose()
 
-    # ------------------------------------------------------------------
-    # Polite delay
-    # ------------------------------------------------------------------
-
-    async def _polite_get(self, path: str, params: dict | None = None) -> BeautifulSoup:
-        """GET a page and return a parsed :class:`BeautifulSoup` tree.
-
-        Applies a polite delay before each request.
+    async def _get_all_matches(self, league_code: str) -> list[dict]:
+        """Fetch all matches for a competition across all pages.
 
         Args:
-            path: URL path relative to the base URL.
-            params: Optional query string parameters.
+            league_code: Internal league code mapped via :data:`COMPETITION_ID_MAP`.
 
         Returns:
-            Parsed HTML document.
-
-        Raises:
-            httpx.HTTPStatusError: On non-2xx responses.
+            List of raw match dicts from the API.
         """
-        await asyncio.sleep(_REQUEST_DELAY_SECONDS)
-        logger.debug("fa_fulltime_request", path=path, params=params)
-        response = await self._client.get(path, params=params)
-        response.raise_for_status()
-        return BeautifulSoup(response.text, "lxml")
+        competition_id = COMPETITION_ID_MAP.get(league_code, league_code)
+        all_matches: list[dict] = []
+        page = 1
 
-    # ------------------------------------------------------------------
-    # AbstractLeagueSource implementation
-    # ------------------------------------------------------------------
+        while True:
+            await asyncio.sleep(_REQUEST_DELAY_SECONDS)
+            response = await self._client.get(
+                "/matches",
+                params={
+                    "competition": competition_id,
+                    "limit": _PAGE_SIZE,
+                    "page": page,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            items = data.get("items", [])
+            all_matches.extend(items)
+
+            pagination = data.get("pagination", {})
+            if not pagination.get("hasNextPage") or len(items) < _PAGE_SIZE:
+                # hasNextPage appears to be unreliable in this API —
+                # stop when we get a partial page
+                if len(items) < _PAGE_SIZE:
+                    break
+                page += 1
+            else:
+                page += 1
+
+            if page > 50:  # safety limit
+                break
+
+        # Deduplicate by API match ID (the API sometimes returns duplicate entries)
+        seen: set[str] = set()
+        unique: list[dict] = []
+        for m in all_matches:
+            mid = m.get("_id") or m.get("id") or str(m)
+            if mid not in seen:
+                seen.add(mid)
+                unique.append(m)
+
+        logger.info("npl_matches_fetched", league=league_code, count=len(unique))
+        return unique
 
     async def fetch_standings(
         self, league_code: str, season: str
     ) -> list[StandingRow]:
-        """Scrape the standings table for a league/season.
+        """Compute standings from all finished matches.
+
+        The NPL API does not expose a standalone standings endpoint, so we
+        derive standings by aggregating all FINISHED match results.
 
         Args:
-            league_code: Internal league code (mapped via :data:`DIVISION_ID_MAP`).
-            season: Season string (format depends on FA Full Time URL scheme).
+            league_code: Internal league code.
+            season: Season string (used for logging only; API returns all
+                matches for the active season).
 
         Returns:
-            List of :class:`StandingRow` ordered by position.
-
-        TODO: Identify the correct URL path and query parameters.
-        TODO: Update :meth:`_parse_standings_table` with real CSS selectors.
+            List of :class:`StandingRow` ordered by points descending.
         """
-        division_id = DIVISION_ID_MAP.get(league_code, league_code)
+        all_matches = await self._get_all_matches(league_code)
+        finished = [m for m in all_matches if m.get("status") == "FullTime"]
 
-        # TODO: Replace with the real URL path once confirmed
-        path = f"/LeagueTableResults.aspx"
-        params: dict[str, str] = {
-            "divisionseason": division_id,
-            "selectedSeason": season,
-        }
+        # Accumulate standings
+        stats: dict[str, dict] = defaultdict(lambda: {
+            "played": 0, "won": 0, "drawn": 0, "lost": 0,
+            "goals_for": 0, "goals_against": 0, "points": 0,
+        })
 
-        soup = await self._polite_get(path, params=params)
-        rows = self._parse_standings_table(soup, season)
-        logger.info("fa_standings_fetched", league=league_code, count=len(rows))
+        for m in finished:
+            home_name = m["homeTeam"]["club"]["fullName"]
+            away_name = m["awayTeam"]["club"]["fullName"]
+            score = m.get("score", {}).get("current", {})
+            hg = score.get("home", 0) or 0
+            ag = score.get("away", 0) or 0
+
+            stats[home_name]["played"] += 1
+            stats[home_name]["goals_for"] += hg
+            stats[home_name]["goals_against"] += ag
+            stats[away_name]["played"] += 1
+            stats[away_name]["goals_for"] += ag
+            stats[away_name]["goals_against"] += hg
+
+            if hg > ag:
+                stats[home_name]["won"] += 1
+                stats[home_name]["points"] += 3
+                stats[away_name]["lost"] += 1
+            elif hg < ag:
+                stats[away_name]["won"] += 1
+                stats[away_name]["points"] += 3
+                stats[home_name]["lost"] += 1
+            else:
+                stats[home_name]["drawn"] += 1
+                stats[home_name]["points"] += 1
+                stats[away_name]["drawn"] += 1
+                stats[away_name]["points"] += 1
+
+        # Sort by points desc, then goal difference desc, then goals for desc
+        sorted_teams = sorted(
+            stats.items(),
+            key=lambda kv: (
+                -kv[1]["points"],
+                -(kv[1]["goals_for"] - kv[1]["goals_against"]),
+                -kv[1]["goals_for"],
+            ),
+        )
+
+        rows = [
+            StandingRow(
+                team=TeamData(name=name),
+                position=idx + 1,
+                played=s["played"],
+                won=s["won"],
+                drawn=s["drawn"],
+                lost=s["lost"],
+                goals_for=s["goals_for"],
+                goals_against=s["goals_against"],
+                points=s["points"],
+            )
+            for idx, (name, s) in enumerate(sorted_teams)
+        ]
+
+        logger.info("npl_standings_computed", league=league_code, teams=len(rows))
         return rows
 
     async def fetch_finished_matches(
         self, league_code: str, season: str
     ) -> list[MatchData]:
-        """Scrape completed results.
+        """Fetch all completed results.
 
         Args:
             league_code: Internal league code.
@@ -145,30 +231,18 @@ class FAFullTimeScraper:
 
         Returns:
             List of finished :class:`MatchData`.
-
-        TODO: Identify the correct URL and pagination mechanism.
-        TODO: FA Full Time may require multiple page loads to get all results.
         """
-        division_id = DIVISION_ID_MAP.get(league_code, league_code)
-
-        # TODO: Replace with the real URL path and params once confirmed
-        path = "/Results.aspx"
-        params: dict[str, str] = {
-            "divisionseason": division_id,
-            "selectedSeason": season,
-        }
-
-        soup = await self._polite_get(path, params=params)
-        matches = self._parse_results_table(soup, season)
-        logger.info(
-            "fa_results_fetched", league=league_code, season=season, count=len(matches)
-        )
-        return matches
+        all_matches = await self._get_all_matches(league_code)
+        return [
+            self._parse_match(m, season)
+            for m in all_matches
+            if m.get("status") == "FullTime"
+        ]
 
     async def fetch_scheduled_fixtures(
         self, league_code: str, season: str
     ) -> list[MatchData]:
-        """Scrape upcoming fixtures.
+        """Fetch upcoming fixtures.
 
         Args:
             league_code: Internal league code.
@@ -176,223 +250,60 @@ class FAFullTimeScraper:
 
         Returns:
             List of scheduled :class:`MatchData`.
-
-        TODO: Identify the correct URL and params for fixtures.
-        TODO: Handle the case where fixtures are not yet published.
         """
-        division_id = DIVISION_ID_MAP.get(league_code, league_code)
+        all_matches = await self._get_all_matches(league_code)
+        scheduled_statuses = {"NotKickedOff", "Postponed"}
+        return [
+            self._parse_match(m, season)
+            for m in all_matches
+            if m.get("status") in scheduled_statuses
+        ]
 
-        # TODO: Replace with the real URL path once confirmed
-        path = "/Fixtures.aspx"
-        params: dict[str, str] = {
-            "divisionseason": division_id,
-            "selectedSeason": season,
-        }
-
-        soup = await self._polite_get(path, params=params)
-        matches = self._parse_fixtures_table(soup, season)
-        logger.info(
-            "fa_fixtures_fetched", league=league_code, season=season, count=len(matches)
-        )
-        return matches
-
-    # ------------------------------------------------------------------
-    # HTML parsing helpers
-    # ------------------------------------------------------------------
-
-    def _parse_standings_table(
-        self, soup: BeautifulSoup, season: str
-    ) -> list[StandingRow]:
-        """Parse the standings HTML table into :class:`StandingRow` objects.
+    def _parse_match(self, raw: dict, season: str) -> MatchData:
+        """Convert a raw API match dict to :class:`MatchData`.
 
         Args:
-            soup: Parsed HTML document.
-            season: Season string to attach to each row.
+            raw: Single match dict from the API.
+            season: Season string to attach.
 
         Returns:
-            List of :class:`StandingRow`.
-
-        TODO: Identify the correct table ID/class from the live site HTML.
-        TODO: Map column indices to the correct fields (position may vary).
+            :class:`MatchData` instance.
         """
-        rows: list[StandingRow] = []
+        home_name = raw["homeTeam"]["club"]["fullName"]
+        away_name = raw["awayTeam"]["club"]["fullName"]
 
-        # TODO: Replace selector with the real table identifier
-        table = soup.find("table", {"id": "ctl00_ctl00_Body_Body_leagueTable"})
-        if not isinstance(table, Tag):
-            logger.warning("standings_table_not_found")
-            return rows
+        score = raw.get("score", {}).get("current", {})
+        status_str = raw.get("status", "NotKickedOff")
+        match_status = _STATUS_MAP.get(status_str, MatchStatus.SCHEDULED)
 
-        for tr in table.find_all("tr")[1:]:  # skip header row
-            cells = tr.find_all("td")
-            if len(cells) < 9:
-                continue
-            try:
-                rows.append(
-                    StandingRow(
-                        team=TeamData(
-                            name=cells[1].get_text(strip=True),
-                        ),
-                        position=int(cells[0].get_text(strip=True) or 0),
-                        played=int(cells[2].get_text(strip=True) or 0),
-                        won=int(cells[3].get_text(strip=True) or 0),
-                        drawn=int(cells[4].get_text(strip=True) or 0),
-                        lost=int(cells[5].get_text(strip=True) or 0),
-                        goals_for=int(cells[6].get_text(strip=True) or 0),
-                        goals_against=int(cells[7].get_text(strip=True) or 0),
-                        points=int(cells[8].get_text(strip=True) or 0),
-                    )
-                )
-            except (ValueError, IndexError) as exc:
-                logger.warning("standings_row_parse_error", error=str(exc))
+        home_goals: int | None = None
+        away_goals: int | None = None
+        if match_status == MatchStatus.FINISHED:
+            home_goals = score.get("home")
+            away_goals = score.get("away")
 
-        return rows
-
-    def _parse_results_table(
-        self, soup: BeautifulSoup, season: str
-    ) -> list[MatchData]:
-        """Parse the results HTML table into finished :class:`MatchData` objects.
-
-        Args:
-            soup: Parsed HTML document.
-            season: Season string.
-
-        Returns:
-            List of finished :class:`MatchData`.
-
-        TODO: Identify the correct table and column layout.
-        TODO: Parse the date string format used by FA Full Time.
-        """
-        matches: list[MatchData] = []
-
-        # TODO: Replace selector with the real results table identifier
-        table = soup.find("table", {"id": "ctl00_ctl00_Body_Body_resultsTable"})
-        if not isinstance(table, Tag):
-            logger.warning("results_table_not_found")
-            return matches
-
-        for tr in table.find_all("tr")[1:]:
-            cells = tr.find_all("td")
-            if len(cells) < 5:
-                continue
-            try:
-                # TODO: Update column indices to match real HTML structure
-                date_str = cells[0].get_text(strip=True)
-                home_name = cells[1].get_text(strip=True)
-                score_str = cells[2].get_text(strip=True)  # e.g. "2 - 1"
-                away_name = cells[3].get_text(strip=True)
-
-                home_goals, away_goals = self._parse_score(score_str)
-                played_at = self._parse_date(date_str)
-
-                matches.append(
-                    MatchData(
-                        season=season,
-                        home_team=TeamData(name=home_name),
-                        away_team=TeamData(name=away_name),
-                        played_at=played_at,
-                        status=MatchStatus.FINISHED,
-                        home_goals=home_goals,
-                        away_goals=away_goals,
-                    )
-                )
-            except (ValueError, IndexError) as exc:
-                logger.warning("result_row_parse_error", error=str(exc))
-
-        return matches
-
-    def _parse_fixtures_table(
-        self, soup: BeautifulSoup, season: str
-    ) -> list[MatchData]:
-        """Parse the fixtures HTML table into scheduled :class:`MatchData` objects.
-
-        Args:
-            soup: Parsed HTML document.
-            season: Season string.
-
-        Returns:
-            List of scheduled :class:`MatchData`.
-
-        TODO: Identify the correct table and column layout.
-        TODO: Handle missing kickoff times (some fixtures only have a date).
-        """
-        matches: list[MatchData] = []
-
-        # TODO: Replace selector with the real fixtures table identifier
-        table = soup.find("table", {"id": "ctl00_ctl00_Body_Body_fixturesTable"})
-        if not isinstance(table, Tag):
-            logger.warning("fixtures_table_not_found")
-            return matches
-
-        for tr in table.find_all("tr")[1:]:
-            cells = tr.find_all("td")
-            if len(cells) < 3:
-                continue
-            try:
-                # TODO: Update column indices to match real HTML structure
-                date_str = cells[0].get_text(strip=True)
-                home_name = cells[1].get_text(strip=True)
-                away_name = cells[2].get_text(strip=True)
-
-                played_at = self._parse_date(date_str)
-
-                matches.append(
-                    MatchData(
-                        season=season,
-                        home_team=TeamData(name=home_name),
-                        away_team=TeamData(name=away_name),
-                        played_at=played_at,
-                        status=MatchStatus.SCHEDULED,
-                    )
-                )
-            except (ValueError, IndexError) as exc:
-                logger.warning("fixture_row_parse_error", error=str(exc))
-
-        return matches
-
-    # ------------------------------------------------------------------
-    # Low-level parsing utilities
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _parse_score(score_str: str) -> tuple[int, int]:
-        """Parse a score string like ``'2 - 1'`` into ``(2, 1)``.
-
-        Args:
-            score_str: Raw text from the score cell.
-
-        Returns:
-            Tuple of ``(home_goals, away_goals)``.
-
-        Raises:
-            ValueError: If the string cannot be parsed.
-
-        TODO: Verify the exact format used on the FA Full Time site.
-        """
-        parts = score_str.replace(" ", "").split("-")
-        if len(parts) != 2:
-            raise ValueError(f"Cannot parse score: {score_str!r}")
-        return int(parts[0]), int(parts[1])
-
-    @staticmethod
-    def _parse_date(date_str: str) -> datetime:
-        """Parse a date string from the FA Full Time site into a UTC datetime.
-
-        Args:
-            date_str: Raw text from a date cell, e.g. ``'12/10/2024 15:00'``.
-
-        Returns:
-            Timezone-aware UTC :class:`datetime`.
-
-        TODO: Confirm the exact date format used on the FA Full Time site.
-        TODO: Handle UK daylight saving time correctly (site likely uses local time).
-        """
-        # TODO: Replace with the real format string, e.g. "%d/%m/%Y %H:%M"
+        # Parse date — API returns "YYYY-MM-DD"
+        date_str: str = raw.get("date") or ""
         try:
-            naive = datetime.strptime(date_str.strip(), "%d/%m/%Y %H:%M")
+            played_at = datetime.strptime(date_str, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            )
         except ValueError:
-            # Fallback: date only
-            naive = datetime.strptime(date_str.strip(), "%d/%m/%Y")
-        # Assume UK local time — for accurate conversion use zoneinfo
-        # TODO: Use zoneinfo.ZoneInfo("Europe/London") for DST-correct conversion
-        return naive.replace(tzinfo=timezone.utc)
+            played_at = datetime.now(tz=timezone.utc)
+            logger.warning("npl_unparseable_date", raw=date_str, match_id=raw.get("_id"))
+
+        return MatchData(
+            season=season,
+            home_team=TeamData(
+                name=home_name,
+                external_id=raw.get("_id"),
+            ),
+            away_team=TeamData(
+                name=away_name,
+            ),
+            played_at=played_at,
+            status=match_status,
+            home_goals=home_goals,
+            away_goals=away_goals,
+            external_id=raw.get("_id"),
+        )

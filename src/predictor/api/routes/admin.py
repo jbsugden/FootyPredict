@@ -7,12 +7,18 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import datetime, timezone
 
 import structlog
 from fastapi import APIRouter, HTTPException, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from predictor.api.deps import AdminKeyVerified, DbSession
+from predictor.config import get_settings
+from predictor.db.models import DataSource, League, MatchStatus
+from predictor.db.repos.match import MatchRepository
+from predictor.db.repos.team import TeamRepository
 
 logger = structlog.get_logger(__name__)
 
@@ -54,29 +60,61 @@ async def sync_all_leagues(
 ) -> SyncResponse:
     """Trigger an immediate data sync from all configured data sources.
 
-    This is the same operation that runs nightly via the scheduler.  Useful
-    for manually forcing a refresh without waiting for the cron job.
+    Fetches standings, finished results, and upcoming fixtures for every
+    league in the database, then rebuilds TeamSeason aggregates and ELO.
 
     Returns:
         :class:`SyncResponse` with a summary of what was synced.
-
-    TODO: Load all active leagues from the DB.
-    TODO: Dispatch DataImporter.sync_league() per league.
-    TODO: Return accurate counts from the import stats.
     """
-    logger.info("admin_sync_triggered")
+    from predictor.data.football_data_org import FootballDataOrgSource
+    from predictor.data.fa_fulltime_scraper import FAFullTimeScraper
+    from predictor.data.importer import DataImporter
+    from predictor.engine.team_season import rebuild_team_seasons
 
-    # TODO: Implement real sync logic
-    # from sqlalchemy import select
-    # from predictor.db.models import League
-    # from predictor.data.importer import DataImporter
-    # ...
+    logger.info("admin_sync_triggered")
+    settings = get_settings()
+
+    result = await db.execute(select(League).order_by(League.tier))
+    leagues = list(result.scalars().all())
+
+    total_matches = 0
+    total_teams = 0
+    leagues_synced = 0
+
+    for league in leagues:
+        try:
+            if league.data_source == DataSource.API_FOOTBALL_DATA:
+                source = FootballDataOrgSource(api_key=settings.FOOTBALL_DATA_API_KEY)
+            else:
+                source = FAFullTimeScraper()
+
+            team_repo = TeamRepository(db)
+            match_repo = MatchRepository(db)
+            importer = DataImporter(source=source, team_repo=team_repo, match_repo=match_repo)
+
+            stats = await importer.sync_league(league)
+            total_teams += stats["teams_created"]
+            total_matches += stats["matches_upserted"]
+
+            # Flush pending inserts so rebuild_team_seasons can query them
+            await db.flush()
+            # Rebuild TeamSeason aggregates + ELO from match data
+            await rebuild_team_seasons(db, league)
+            await db.commit()
+
+            await source.aclose()
+            leagues_synced += 1
+            logger.info("league_sync_complete", league=league.code, **stats)
+
+        except Exception as exc:
+            logger.error("league_sync_failed", league=league.code, error=str(exc))
+            await db.rollback()
 
     return SyncResponse(
-        message="Sync complete (placeholder — real sync not yet implemented).",
-        leagues_synced=0,
-        matches_upserted=0,
-        teams_created=0,
+        message=f"Sync complete. {leagues_synced}/{len(leagues)} leagues synced.",
+        leagues_synced=leagues_synced,
+        matches_upserted=total_matches,
+        teams_created=total_teams,
     )
 
 
@@ -101,11 +139,9 @@ async def import_csv(
 
     Raises:
         HTTPException 400: If the file is not a valid CSV or has wrong headers.
-
-    TODO: Validate against the DB's known league codes.
-    TODO: Look up / create teams and upsert matches.
-    TODO: Trigger ELO recalculation after bulk import.
     """
+    from predictor.engine.team_season import rebuild_team_seasons
+
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -136,23 +172,83 @@ async def import_csv(
             detail=f"CSV is missing required columns: {sorted(missing)}",
         )
 
+    # Cache leagues by code to avoid repeated DB queries
+    league_cache: dict[str, League | None] = {}
+    affected_leagues: set[str] = set()
+
+    team_repo = TeamRepository(db)
+    match_repo = MatchRepository(db)
+
     rows_processed = 0
     rows_failed = 0
     errors: list[str] = []
 
     for line_num, row in enumerate(reader, start=2):
         try:
-            # TODO: Parse date, look up league, upsert match record
-            # from datetime import datetime
-            # played_at = datetime.strptime(row["date"], "%d/%m/%Y")
-            # ...
+            league_code = row["league_code"].strip()
+            season = row["season"].strip()
+
+            # Resolve league (cached)
+            if league_code not in league_cache:
+                lg_result = await db.execute(
+                    select(League).where(League.code == league_code)
+                )
+                league_cache[league_code] = lg_result.scalar_one_or_none()
+
+            league = league_cache[league_code]
+            if league is None:
+                raise ValueError(f"Unknown league code {league_code!r}")
+
+            # Parse date
+            date_str = row["date"].strip()
+            try:
+                played_at = datetime.strptime(date_str, "%d/%m/%Y").replace(
+                    tzinfo=timezone.utc
+                )
+            except ValueError:
+                played_at = datetime.strptime(date_str, "%Y-%m-%d").replace(
+                    tzinfo=timezone.utc
+                )
+
+            home_team, _ = await team_repo.get_or_create(
+                league_id=league.id,
+                name=row["home_team"].strip(),
+            )
+            away_team, _ = await team_repo.get_or_create(
+                league_id=league.id,
+                name=row["away_team"].strip(),
+            )
+
+            await match_repo.upsert({
+                "league_id": league.id,
+                "season": season,
+                "home_team_id": home_team.id,
+                "away_team_id": away_team.id,
+                "played_at": played_at,
+                "status": MatchStatus.FINISHED,
+                "home_goals": int(row["home_goals"]),
+                "away_goals": int(row["away_goals"]),
+                "matchday": None,
+            })
+
+            affected_leagues.add(league.id)
             rows_processed += 1
+
         except Exception as exc:
             rows_failed += 1
             errors.append(f"Row {line_num}: {exc}")
             if len(errors) >= 50:
                 errors.append("(too many errors — truncated)")
                 break
+
+    # Rebuild TeamSeason for each affected league
+    for league_id in affected_leagues:
+        lg_result = await db.execute(select(League).where(League.id == league_id))
+        league = lg_result.scalar_one_or_none()
+        if league:
+            await rebuild_team_seasons(db, league)
+
+    await db.commit()
 
     logger.info(
         "csv_import_completed",

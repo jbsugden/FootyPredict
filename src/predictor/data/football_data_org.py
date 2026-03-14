@@ -85,10 +85,7 @@ class FootballDataOrgSource:
         elapsed = time.monotonic() - self._last_request_time
         if elapsed < _REQUEST_DELAY_SECONDS:
             await asyncio.sleep(_REQUEST_DELAY_SECONDS - elapsed)
-        self._last_request_time = time.monotonic()  # type: ignore[assignment]
-        import time as _time
-
-        self._last_request_time = _time.monotonic()
+        self._last_request_time = time.monotonic()
 
     async def _get(self, path: str, params: dict | None = None) -> dict:
         """Send a GET request with rate limiting and basic error handling.

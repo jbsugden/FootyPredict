@@ -157,22 +157,100 @@ async def run_prediction(
 async def _run_prediction_task(league_id: str) -> None:
     """Background task: run Monte Carlo simulation and persist results.
 
+    Pipeline:
+      1. Open a fresh DB session (independent of the triggering request).
+      2. Load finished matches and scheduled fixtures.
+      3. Build StrengthCalculator from finished matches.
+      4. Build current standings from finished matches.
+      5. Run MonteCarloSimulator.
+      6. Save via PredictionRepository.save().
+
     Args:
         league_id: UUID of the league.
-
-    TODO: Implement the full pipeline:
-          1. Open a fresh DB session.
-          2. Load finished matches and scheduled fixtures.
-          3. Build StrengthCalculator from finished matches.
-          4. Build current standings from finished matches.
-          5. Run MonteCarloSimulator.
-          6. Save via PredictionRepository.save().
     """
+    from predictor.db.session import get_session_factory
+    from predictor.db.models import League
+    from predictor.db.repos.match import MatchRepository
+    from predictor.db.repos.prediction import PredictionRepository
+    from predictor.engine.poisson import MatchRecord, StrengthCalculator
+    from predictor.engine.simulator import Fixture, MonteCarloSimulator, SimulationInput
+    from predictor.engine.standings import apply_result, initialise_standings
+
     logger.info("prediction_task_started", league_id=league_id)
     try:
-        # TODO: import and run the full simulation pipeline here
-        pass
+        factory = get_session_factory()
+        async with factory() as session:
+            league = await session.get(League, league_id)
+            if league is None:
+                logger.error("prediction_task_league_not_found", league_id=league_id)
+                return
+
+            match_repo = MatchRepository(session)
+            finished = await match_repo.get_finished(league_id, league.current_season)
+            scheduled = await match_repo.get_scheduled(league_id, league.current_season)
+
+            if not finished:
+                logger.warning("prediction_task_no_finished_matches", league_id=league_id)
+                return
+
+            # Build StrengthCalculator from finished matches
+            match_records = [
+                MatchRecord(
+                    home_team_id=m.home_team_id,
+                    away_team_id=m.away_team_id,
+                    home_goals=m.home_goals or 0,
+                    away_goals=m.away_goals or 0,
+                    played_at=m.played_at,
+                )
+                for m in finished
+            ]
+            strength_calc = StrengthCalculator(match_records)
+            strength_calc.compute_strengths()
+
+            # Compute league average goals
+            total_goals = sum((m.home_goals or 0) + (m.away_goals or 0) for m in finished)
+            league_avg = total_goals / (len(finished) * 2) if finished else 1.4
+
+            # Build current standings from finished matches
+            all_team_ids = list({m.home_team_id for m in finished} | {m.away_team_id for m in finished})
+            current_standings = initialise_standings(all_team_ids)
+            for m in finished:
+                apply_result(
+                    current_standings,
+                    m.home_team_id,
+                    m.away_team_id,
+                    m.home_goals or 0,
+                    m.away_goals or 0,
+                )
+
+            # Build remaining fixtures
+            remaining_fixtures = [
+                Fixture(home_id=m.home_team_id, away_id=m.away_team_id)
+                for m in scheduled
+            ]
+
+            sim_input = SimulationInput(
+                team_ids=all_team_ids,
+                current_standings=current_standings,
+                remaining_fixtures=remaining_fixtures,
+                strength_calculator=strength_calc,
+                league_avg_goals=league_avg,
+            )
+
+            simulator = MonteCarloSimulator(n_simulations=10_000)
+            predictions = simulator.run(sim_input)
+            results_dict = simulator.results_to_dict(predictions)
+
+            pred_repo = PredictionRepository(session)
+            await pred_repo.save(
+                league_id=league_id,
+                season=league.current_season,
+                simulation_runs=10_000,
+                results=results_dict,
+            )
+            await session.commit()
+
+        logger.info("prediction_task_completed", league_id=league_id)
     except Exception as exc:
         logger.error("prediction_task_failed", league_id=league_id, error=str(exc))
         raise
-    logger.info("prediction_task_completed", league_id=league_id)
