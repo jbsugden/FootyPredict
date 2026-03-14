@@ -104,6 +104,101 @@
 </section>
 {% endif %}
 
+<!-- ------------------------------------------------------------------ -->
+<!-- Scenario Explorer                                                    -->
+<!-- ------------------------------------------------------------------ -->
+{% if prediction and scenario_fixtures != '[]' %}
+<section x-data="scenarioExplorer()" x-cloak>
+  <h2>Scenario Explorer</h2>
+  <p style="font-size:0.85rem; color:var(--pico-muted-color, #666);">
+    Lock in hypothetical results for upcoming fixtures and see how the predicted table shifts.
+  </p>
+
+  <div class="table-responsive">
+    <table role="grid" class="scenario-table">
+      <thead>
+        <tr>
+          <th>Home</th>
+          <th style="text-align:center;">Score</th>
+          <th>Away</th>
+          <th style="width:5rem;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="(fix, idx) in fixtures" :key="idx">
+          <tr :class="fix.locked ? 'scenario-locked' : ''">
+            <td x-text="fix.home_name"></td>
+            <td style="text-align:center;">
+              <div style="display:inline-flex; gap:0.25rem; align-items:center;">
+                <input type="number" min="0" max="15"
+                       x-model.number="fix.home_goals"
+                       :disabled="!fix.locked"
+                       style="width:3rem; text-align:center; padding:0.25rem; margin:0;" />
+                <span>&ndash;</span>
+                <input type="number" min="0" max="15"
+                       x-model.number="fix.away_goals"
+                       :disabled="!fix.locked"
+                       style="width:3rem; text-align:center; padding:0.25rem; margin:0;" />
+              </div>
+            </td>
+            <td x-text="fix.away_name"></td>
+            <td>
+              <button class="outline" style="font-size:0.7rem; padding:0.15rem 0.5rem; margin:0;"
+                      @click="fix.locked = !fix.locked"
+                      x-text="fix.locked ? 'Unlock' : 'Lock'"></button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="display:flex; gap:1rem; align-items:center; margin-top:0.5rem;">
+    <button @click="runScenario()" :disabled="loading || lockedCount === 0" :aria-busy="loading"
+            style="margin:0; width:auto;">
+      <span x-show="!loading">Run Scenario</span>
+      <span x-show="loading">Simulating&hellip;</span>
+    </button>
+    <small x-show="lockedCount > 0" x-text="lockedCount + ' fixture(s) locked'" style="color:var(--pico-muted-color, #666);"></small>
+    <small x-show="error" x-text="error" style="color:var(--fp-loss);"></small>
+  </div>
+
+  <!-- Scenario results -->
+  <template x-if="results">
+    <div style="margin-top:1rem;">
+      <h3>Scenario Result
+        <small style="font-weight:normal; font-size:0.8rem;" x-text="results.simulation_runs.toLocaleString() + ' simulations'"></small>
+      </h3>
+      <div class="table-responsive">
+        <table role="grid">
+          <thead>
+            <tr>
+              <th>Team</th>
+              <th style="text-align:center;">Baseline</th>
+              <th style="text-align:center;">Scenario</th>
+              <th style="text-align:center;">Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="team in results.teams" :key="team.team_id">
+              <tr>
+                <td><strong x-text="team.team_name"></strong></td>
+                <td style="text-align:center;" x-text="team.baseline_mean_pos.toFixed(1)"></td>
+                <td style="text-align:center;" x-text="team.mean_pos.toFixed(1)"></td>
+                <td style="text-align:center;"
+                    :style="{ color: team.pos_change < -0.05 ? 'var(--fp-win)' : team.pos_change > 0.05 ? 'var(--fp-loss)' : '' }">
+                  <strong x-text="(team.pos_change > 0 ? '+' : '') + team.pos_change.toFixed(1)"></strong>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </template>
+</section>
+{% endif %}
+
 {% endblock %}
 
 
@@ -126,5 +221,48 @@
     }
     {% endif %}
   });
+
+  {% if prediction and scenario_fixtures != '[]' %}
+  function scenarioExplorer() {
+    return {
+      fixtures: {{ scenario_fixtures }},
+      loading: false,
+      results: null,
+      error: '',
+      get lockedCount() {
+        return this.fixtures.filter(f => f.locked).length;
+      },
+      async runScenario() {
+        this.loading = true;
+        this.error = '';
+        this.results = null;
+        const locked = this.fixtures
+          .filter(f => f.locked)
+          .map(f => ({
+            home_team_id: f.home_id,
+            away_team_id: f.away_id,
+            home_goals: f.home_goals,
+            away_goals: f.away_goals,
+          }));
+        try {
+          const resp = await fetch('/api/predictions/{{ league.id }}/scenario', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locked_results: locked }),
+          });
+          if (!resp.ok) {
+            const data = await resp.json();
+            this.error = data.detail || 'Simulation failed';
+          } else {
+            this.results = await resp.json();
+          }
+        } catch (e) {
+          this.error = 'Network error: ' + e.message;
+        }
+        this.loading = false;
+      }
+    };
+  }
+  {% endif %}
 </script>
 {% endblock %}

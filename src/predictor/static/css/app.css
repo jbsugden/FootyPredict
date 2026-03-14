@@ -109,6 +109,16 @@ nav .brand {
   color: var(--fp-relegation);
 }
 
+/* Scenario explorer */
+.scenario-table input[type="number"] {
+  font-size: 0.85rem;
+  border-radius: 4px;
+}
+
+.scenario-locked {
+  background: rgba(21, 101, 192, 0.06);
+}
+
 /* Zone text colors for team detail cards */
 .zone-ucl-text { color: var(--fp-europe); }
 .zone-europa-text { color: #7b1fa2; }

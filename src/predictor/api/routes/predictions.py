@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from predictor.api.deps import AdminKeyVerified, DbSession
 from predictor.db.models import League
@@ -45,6 +45,40 @@ class RunPredictionResponse(BaseModel):
 
     message: str
     league_id: str
+
+
+class ScenarioFixture(BaseModel):
+    """A single locked-in fixture result for a scenario simulation."""
+
+    home_team_id: str
+    away_team_id: str
+    home_goals: int = Field(ge=0, le=15)
+    away_goals: int = Field(ge=0, le=15)
+
+
+class ScenarioRequest(BaseModel):
+    """Request body for a scenario (what-if) simulation."""
+
+    locked_results: list[ScenarioFixture] = Field(min_length=1, max_length=20)
+
+
+class ScenarioTeamResult(BaseModel):
+    """Per-team result comparing baseline vs scenario predictions."""
+
+    team_id: str
+    team_name: str
+    mean_pos: float
+    mean_points: float
+    baseline_mean_pos: float
+    pos_change: float
+
+
+class ScenarioResponse(BaseModel):
+    """Response from a scenario simulation."""
+
+    teams: list[ScenarioTeamResult]
+    simulation_runs: int
+    locked_count: int
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +130,7 @@ async def get_latest_prediction(
             pos_dist=data.get("pos_dist", []),
         )
         for team_id, data in prediction.results.items()
+        if not team_id.startswith("__")
     ]
     # Sort by mean position ascending
     teams.sort(key=lambda t: t.mean_pos)
@@ -154,27 +189,123 @@ async def run_prediction(
     )
 
 
+@router.post(
+    "/predictions/{league_id}/scenario",
+    response_model=ScenarioResponse,
+)
+async def run_scenario(
+    league_id: str,
+    scenario: ScenarioRequest,
+    db: DbSession,
+) -> ScenarioResponse:
+    """Run a what-if scenario simulation with locked-in fixture results.
+
+    No admin key required — this is a read-only hypothetical computation.
+    Nothing is persisted.
+
+    Args:
+        league_id: UUID of the league.
+        scenario: Locked-in fixture results to apply before simulating.
+
+    Returns:
+        Per-team comparison of baseline vs scenario predicted positions.
+
+    Raises:
+        HTTPException 404: If league not found or no baseline prediction exists.
+    """
+    import copy
+
+    from predictor.engine.pipeline import build_simulation_input, build_team_name_map
+    from predictor.engine.simulator import MonteCarloSimulator
+    from predictor.engine.standings import apply_result
+
+    league = await db.get(League, league_id)
+    if league is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"League {league_id!r} not found.",
+        )
+
+    # Get baseline prediction for comparison
+    pred_repo = PredictionRepository(db)
+    baseline = await pred_repo.get_latest(league_id, league.current_season)
+    if baseline is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No baseline prediction exists. Run a prediction first.",
+        )
+
+    # Build simulation input
+    sim_input = await build_simulation_input(db, league_id, league.current_season)
+    if sim_input is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No finished matches available for simulation.",
+        )
+
+    # Apply locked-in results: remove from remaining fixtures, apply to standings
+    locked_set = {
+        (lr.home_team_id, lr.away_team_id) for lr in scenario.locked_results
+    }
+    sim_input.remaining_fixtures = [
+        f for f in sim_input.remaining_fixtures
+        if (f.home_id, f.away_id) not in locked_set
+    ]
+    sim_input.current_standings = copy.deepcopy(sim_input.current_standings)
+    for lr in scenario.locked_results:
+        apply_result(
+            sim_input.current_standings,
+            lr.home_team_id,
+            lr.away_team_id,
+            lr.home_goals,
+            lr.away_goals,
+        )
+
+    # Run reduced simulation
+    n_sims = 2_000
+    simulator = MonteCarloSimulator(n_simulations=n_sims)
+    predictions = simulator.run(sim_input)
+    results_dict = simulator.results_to_dict(predictions)
+
+    # Build comparison
+    team_names = await build_team_name_map(db, league_id)
+    teams = []
+    for team_id, data in results_dict.items():
+        if team_id.startswith("__"):
+            continue
+        baseline_pos = baseline.results.get(team_id, {}).get("mean_pos", 0.0)
+        scenario_pos = data.get("mean_pos", 0.0)
+        teams.append(ScenarioTeamResult(
+            team_id=team_id,
+            team_name=team_names.get(team_id, team_id),
+            mean_pos=round(scenario_pos, 2),
+            mean_points=round(data.get("mean_points", 0.0), 2),
+            baseline_mean_pos=round(baseline_pos, 2),
+            pos_change=round(scenario_pos - baseline_pos, 2),
+        ))
+    teams.sort(key=lambda t: t.mean_pos)
+
+    return ScenarioResponse(
+        teams=teams,
+        simulation_runs=n_sims,
+        locked_count=len(scenario.locked_results),
+    )
+
+
 async def _run_prediction_task(league_id: str) -> None:
     """Background task: run Monte Carlo simulation and persist results.
 
-    Pipeline:
-      1. Open a fresh DB session (independent of the triggering request).
-      2. Load finished matches and scheduled fixtures.
-      3. Build StrengthCalculator from finished matches.
-      4. Build current standings from finished matches.
-      5. Run MonteCarloSimulator.
-      6. Save via PredictionRepository.save().
+    Uses the shared pipeline to build a :class:`SimulationInput`, runs
+    10,000 Monte Carlo simulations, and saves the result.
 
     Args:
         league_id: UUID of the league.
     """
     from predictor.db.session import get_session_factory
     from predictor.db.models import League
-    from predictor.db.repos.match import MatchRepository
     from predictor.db.repos.prediction import PredictionRepository
-    from predictor.engine.poisson import MatchRecord, StrengthCalculator
-    from predictor.engine.simulator import Fixture, MonteCarloSimulator, SimulationInput
-    from predictor.engine.standings import apply_result, initialise_standings
+    from predictor.engine.pipeline import build_simulation_input
+    from predictor.engine.simulator import MonteCarloSimulator
 
     logger.info("prediction_task_started", league_id=league_id)
     try:
@@ -185,64 +316,12 @@ async def _run_prediction_task(league_id: str) -> None:
                 logger.error("prediction_task_league_not_found", league_id=league_id)
                 return
 
-            match_repo = MatchRepository(session)
-            finished = await match_repo.get_finished(league_id, league.current_season)
-            scheduled = await match_repo.get_scheduled(league_id, league.current_season)
-
-            if not finished:
+            sim_input = await build_simulation_input(
+                session, league_id, league.current_season
+            )
+            if sim_input is None:
                 logger.warning("prediction_task_no_finished_matches", league_id=league_id)
                 return
-
-            # Include previous-season matches for cross-season prior
-            from predictor.db.repos.match import previous_season
-            prev = previous_season(league.current_season)
-            prev_finished = await match_repo.get_finished_multi_season(
-                league_id, [prev]
-            )
-
-            # Build StrengthCalculator from current + previous season
-            match_records = [
-                MatchRecord(
-                    home_team_id=m.home_team_id,
-                    away_team_id=m.away_team_id,
-                    home_goals=m.home_goals or 0,
-                    away_goals=m.away_goals or 0,
-                    played_at=m.played_at,
-                )
-                for m in prev_finished + finished
-            ]
-            strength_calc = StrengthCalculator(match_records)
-            strength_calc.compute_strengths()
-
-            # Compute league average goals
-            total_goals = sum((m.home_goals or 0) + (m.away_goals or 0) for m in finished)
-            league_avg = total_goals / (len(finished) * 2) if finished else 1.4
-
-            # Build current standings from finished matches
-            all_team_ids = list({m.home_team_id for m in finished} | {m.away_team_id for m in finished})
-            current_standings = initialise_standings(all_team_ids)
-            for m in finished:
-                apply_result(
-                    current_standings,
-                    m.home_team_id,
-                    m.away_team_id,
-                    m.home_goals or 0,
-                    m.away_goals or 0,
-                )
-
-            # Build remaining fixtures
-            remaining_fixtures = [
-                Fixture(home_id=m.home_team_id, away_id=m.away_team_id)
-                for m in scheduled
-            ]
-
-            sim_input = SimulationInput(
-                team_ids=all_team_ids,
-                current_standings=current_standings,
-                remaining_fixtures=remaining_fixtures,
-                strength_calculator=strength_calc,
-                league_avg_goals=league_avg,
-            )
 
             simulator = MonteCarloSimulator(n_simulations=10_000)
             predictions = simulator.run(sim_input)

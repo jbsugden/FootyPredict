@@ -149,6 +149,23 @@ async def league_detail(
 
     zone_classes = build_zone_class_map(league.code, n_teams)
 
+    # Scheduled matches for scenario explorer
+    match_repo = MatchRepository(db)
+    scheduled_matches = await match_repo.get_scheduled(league_id, league.current_season)
+    import json as _json
+    scenario_fixtures = _json.dumps([
+        {
+            "home_id": m.home_team_id,
+            "away_id": m.away_team_id,
+            "home_name": team_map.get(m.home_team_id, None) and team_map[m.home_team_id].name or m.home_team_id,
+            "away_name": team_map.get(m.away_team_id, None) and team_map[m.away_team_id].name or m.away_team_id,
+            "home_goals": 0,
+            "away_goals": 0,
+            "locked": False,
+        }
+        for m in scheduled_matches[:30]
+    ])
+
     # Load leagues for nav
     nav_result = await db.execute(select(League).order_by(League.tier, League.name))
     nav_leagues = nav_result.scalars().all()
@@ -165,6 +182,7 @@ async def league_detail(
             "n_teams": n_teams,
             "zone_classes": zone_classes,
             "timeline_data": timeline_data,
+            "scenario_fixtures": scenario_fixtures,
             "nav_leagues": nav_leagues,
         },
     )

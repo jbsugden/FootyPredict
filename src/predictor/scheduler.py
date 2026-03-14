@@ -106,13 +106,11 @@ async def daily_predict() -> None:
     """Run Monte Carlo simulations for all active leagues (03:00 UTC)."""
     from sqlalchemy import select
 
-    from predictor.db.models import League, MatchStatus
-    from predictor.db.repos.match import MatchRepository
+    from predictor.db.models import League
     from predictor.db.repos.prediction import PredictionRepository
     from predictor.db.session import get_session_factory
-    from predictor.engine.poisson import MatchRecord, StrengthCalculator
-    from predictor.engine.simulator import Fixture, MonteCarloSimulator, SimulationInput
-    from predictor.engine.standings import apply_result, initialise_standings
+    from predictor.engine.pipeline import build_simulation_input
+    from predictor.engine.simulator import MonteCarloSimulator
 
     logger.info("daily_predict_started")
     try:
@@ -123,63 +121,12 @@ async def daily_predict() -> None:
 
             for league in leagues:
                 try:
-                    match_repo = MatchRepository(session)
-                    finished = await match_repo.get_finished(league.id, league.current_season)
-                    scheduled = await match_repo.get_scheduled(league.id, league.current_season)
-
-                    if not finished:
+                    sim_input = await build_simulation_input(
+                        session, league.id, league.current_season
+                    )
+                    if sim_input is None:
                         logger.info("daily_predict_no_data", league=league.code)
                         continue
-
-                    # Include previous-season matches for cross-season prior
-                    from predictor.db.repos.match import previous_season
-                    prev = previous_season(league.current_season)
-                    prev_finished = await match_repo.get_finished_multi_season(
-                        league.id, [prev]
-                    )
-
-                    match_records = [
-                        MatchRecord(
-                            home_team_id=m.home_team_id,
-                            away_team_id=m.away_team_id,
-                            home_goals=m.home_goals or 0,
-                            away_goals=m.away_goals or 0,
-                            played_at=m.played_at,
-                        )
-                        for m in prev_finished + finished
-                    ]
-
-                    strength_calc = StrengthCalculator(match_records)
-                    strength_calc.compute_strengths()
-
-                    total_goals = sum((m.home_goals or 0) + (m.away_goals or 0) for m in finished)
-                    league_avg = total_goals / (len(finished) * 2) if finished else 1.4
-
-                    all_team_ids = list(
-                        {m.home_team_id for m in finished} | {m.away_team_id for m in finished}
-                    )
-                    current_standings = initialise_standings(all_team_ids)
-                    for m in finished:
-                        apply_result(
-                            current_standings,
-                            m.home_team_id,
-                            m.away_team_id,
-                            m.home_goals or 0,
-                            m.away_goals or 0,
-                        )
-
-                    remaining_fixtures = [
-                        Fixture(home_id=m.home_team_id, away_id=m.away_team_id)
-                        for m in scheduled
-                    ]
-
-                    sim_input = SimulationInput(
-                        team_ids=all_team_ids,
-                        current_standings=current_standings,
-                        remaining_fixtures=remaining_fixtures,
-                        strength_calculator=strength_calc,
-                        league_avg_goals=league_avg,
-                    )
 
                     simulator = MonteCarloSimulator(n_simulations=10_000)
                     predictions = simulator.run(sim_input)
