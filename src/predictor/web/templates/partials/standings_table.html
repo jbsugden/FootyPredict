@@ -29,7 +29,7 @@
     <tbody>
       {% for ts in standings %}
       {% set pos = loop.index %}
-      <tr class="standings-row {% if pos == 1 %}pos-champion{% elif pos <= 4 %}pos-europe{% elif pos >= standings|length - 2 %}pos-relegation{% endif %}">
+      <tr class="standings-row {% if zone_classes is defined and pos in zone_classes %}{{ zone_classes[pos] }}{% elif pos == 1 %}pos-champion{% elif pos <= 4 %}pos-europe{% elif pos >= standings|length - 2 %}pos-relegation{% endif %}">
         <td>{{ pos }}</td>
         <td>
           <strong>

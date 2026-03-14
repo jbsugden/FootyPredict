@@ -66,6 +66,19 @@
       </div>
     </div>
 
+    {% if team_zones %}
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1rem;">
+      {% for z in team_zones %}
+      {% if z.probability > 0.005 %}
+      <div class="outlook-card" style="text-align:center; padding:0.75rem; flex:1; min-width:100px;">
+        <small style="color:var(--pico-muted-color, #666);">{{ z.label }}</small>
+        <div style="font-size:1.5rem; font-weight:700;" class="{{ z.css_class }}-text">{{ (z.probability * 100)|round(1) }}%</div>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+
     <!-- Position distribution chart for this team -->
     <div style="position:relative; height:250px; width:100%;">
       <canvas id="teamPosChart"></canvas>

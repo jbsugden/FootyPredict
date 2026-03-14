@@ -47,6 +47,15 @@
               {%- if not loop.last %}&nbsp;&middot;{% endif %}
             {% endfor %}
           </small>
+          {% if team.zones %}
+          <div class="zone-pills">
+            {% for z in team.zones %}
+            {% if z.probability > 0.005 %}
+            <span class="zone-pill {{ z.css_class }}">{{ z.label }}: {{ (z.probability * 100)|round(1) }}%</span>
+            {% endif %}
+            {% endfor %}
+          </div>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

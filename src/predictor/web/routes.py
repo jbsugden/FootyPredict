@@ -20,6 +20,7 @@ from predictor.db.repos.match import MatchRepository
 from predictor.db.repos.prediction import PredictionRepository
 from predictor.db.repos.team import TeamRepository
 from predictor.engine.fixture_prediction import predict_fixtures
+from predictor.engine.zones import build_zone_class_map, compute_zone_probabilities
 
 logger = structlog.get_logger(__name__)
 
@@ -110,18 +111,24 @@ async def league_detail(
     prediction = await pred_repo.get_latest(league_id, league.current_season)
 
     predicted_table = []
+    n_teams = len(teams)
     if prediction:
-        items = [
-            {
+        items = []
+        for tid, data in prediction.results.items():
+            if tid.startswith("__"):
+                continue
+            pos_dist = data.get("pos_dist", [])
+            items.append({
                 "team_id": tid,
                 "team_name": team_map.get(tid, None) and team_map[tid].name or tid,
                 "mean_pos": data.get("mean_pos", 0.0),
                 "mean_points": data.get("mean_points", 0.0),
-                "pos_dist": data.get("pos_dist", []),
-            }
-            for tid, data in prediction.results.items()
-        ]
+                "pos_dist": pos_dist,
+                "zones": compute_zone_probabilities(pos_dist, league.code, n_teams),
+            })
         predicted_table = sorted(items, key=lambda x: x["mean_pos"])
+
+    zone_classes = build_zone_class_map(league.code, n_teams)
 
     # Load leagues for nav
     nav_result = await db.execute(select(League).order_by(League.tier, League.name))
@@ -136,7 +143,8 @@ async def league_detail(
             "team_map": team_map,
             "predicted_table": predicted_table,
             "prediction": prediction,
-            "n_teams": len(teams),
+            "n_teams": n_teams,
+            "zone_classes": zone_classes,
             "nav_leagues": nav_leagues,
         },
     )
@@ -210,8 +218,13 @@ async def team_detail(
     prediction = await pred_repo.get_latest(league_id, league.current_season)
 
     team_prediction = None
+    team_zones = []
     if prediction and team_id in prediction.results:
         team_prediction = prediction.results[team_id]
+        n_league_teams = len(teams)
+        team_zones = compute_zone_probabilities(
+            team_prediction.get("pos_dist", []), league.code, n_league_teams
+        )
 
     # Last 5 finished matches involving this team (most recent first)
     team_finished = [
@@ -243,6 +256,7 @@ async def team_detail(
             "fp_result": fp_result,
             "team_prediction": team_prediction,
             "prediction": prediction,
+            "team_zones": team_zones,
             "recent_results": recent_results,
             "toughest": toughest,
             "easiest": easiest,
