@@ -105,6 +105,50 @@
 {% endif %}
 
 <!-- ------------------------------------------------------------------ -->
+<!-- Key Matches (Match Significance Index)                               -->
+<!-- ------------------------------------------------------------------ -->
+{% if key_matches %}
+<section>
+  <h2>Key Matches</h2>
+  <p style="font-size:0.85rem; color:var(--pico-muted-color, #666);">
+    Upcoming fixtures ranked by how much their result would shift the predicted table.
+  </p>
+  <div class="table-responsive">
+    <table role="grid">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Home</th>
+          <th>Away</th>
+          <th style="text-align:center;">Significance</th>
+          <th style="text-align:center;">If Home Win</th>
+          <th style="text-align:center;">If Draw</th>
+          <th style="text-align:center;">If Away Win</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for km in key_matches %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td><strong>{{ km.home_name }}</strong></td>
+          <td><strong>{{ km.away_name }}</strong></td>
+          <td style="text-align:center;">
+            <span class="significance-badge" style="opacity:{{ [0.4, (km.significance_score / key_matches[0].significance_score)]|max }};">
+              {{ km.significance_score|round(1) }}
+            </span>
+          </td>
+          <td style="text-align:center;">{{ km.shift_home_win|round(1) }}</td>
+          <td style="text-align:center;">{{ km.shift_draw|round(1) }}</td>
+          <td style="text-align:center;">{{ km.shift_away_win|round(1) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<!-- ------------------------------------------------------------------ -->
 <!-- Scenario Explorer                                                    -->
 <!-- ------------------------------------------------------------------ -->
 {% if prediction and scenario_fixtures != '[]' %}

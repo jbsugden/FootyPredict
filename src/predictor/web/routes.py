@@ -149,6 +149,11 @@ async def league_detail(
 
     zone_classes = build_zone_class_map(league.code, n_teams)
 
+    # Key matches from significance analysis
+    key_matches = []
+    if prediction and "__meta__" in prediction.results:
+        key_matches = prediction.results["__meta__"].get("key_matches", [])
+
     # Scheduled matches for scenario explorer
     match_repo = MatchRepository(db)
     scheduled_matches = await match_repo.get_scheduled(league_id, league.current_season)
@@ -182,6 +187,7 @@ async def league_detail(
             "n_teams": n_teams,
             "zone_classes": zone_classes,
             "timeline_data": timeline_data,
+            "key_matches": key_matches,
             "scenario_fixtures": scenario_fixtures,
             "nav_leagues": nav_leagues,
         },

@@ -109,6 +109,18 @@ nav .brand {
   color: var(--fp-relegation);
 }
 
+/* Match significance badge */
+.significance-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--fp-europe);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  font-family: monospace;
+}
+
 /* Scenario explorer */
 .scenario-table input[type="number"] {
   font-size: 0.85rem;

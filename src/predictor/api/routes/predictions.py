@@ -304,7 +304,8 @@ async def _run_prediction_task(league_id: str) -> None:
     from predictor.db.session import get_session_factory
     from predictor.db.models import League
     from predictor.db.repos.prediction import PredictionRepository
-    from predictor.engine.pipeline import build_simulation_input
+    from predictor.engine.pipeline import build_simulation_input, build_team_name_map
+    from predictor.engine.significance import rank_fixtures_by_significance
     from predictor.engine.simulator import MonteCarloSimulator
 
     logger.info("prediction_task_started", league_id=league_id)
@@ -326,6 +327,34 @@ async def _run_prediction_task(league_id: str) -> None:
             simulator = MonteCarloSimulator(n_simulations=10_000)
             predictions = simulator.run(sim_input)
             results_dict = simulator.results_to_dict(predictions)
+
+            # Compute match significance index
+            try:
+                team_names = await build_team_name_map(session, league_id)
+                key_matches = rank_fixtures_by_significance(
+                    sim_input, predictions, team_names,
+                    n_simulations=1_000, max_fixtures=10, rng_seed=42,
+                )
+                results_dict["__meta__"] = {
+                    "key_matches": [
+                        {
+                            "home_id": km.home_id,
+                            "away_id": km.away_id,
+                            "home_name": km.home_name,
+                            "away_name": km.away_name,
+                            "significance_score": round(km.significance_score, 3),
+                            "shift_home_win": round(km.shift_home_win, 3),
+                            "shift_draw": round(km.shift_draw, 3),
+                            "shift_away_win": round(km.shift_away_win, 3),
+                        }
+                        for km in key_matches
+                    ]
+                }
+            except Exception as sig_exc:
+                logger.warning(
+                    "significance_computation_failed",
+                    league_id=league_id, error=str(sig_exc),
+                )
 
             pred_repo = PredictionRepository(session)
             await pred_repo.save(
