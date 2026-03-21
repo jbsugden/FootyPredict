@@ -26,6 +26,8 @@ class TeamData:
     name: str
     short_name: str | None = None
     external_id: str | None = None
+    crest_url: str | None = None
+    website_url: str | None = None
 
 
 @dataclass(frozen=True)

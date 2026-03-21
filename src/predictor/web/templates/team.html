@@ -18,7 +18,12 @@
 <section class="team-hero">
   <div>
     <h1 style="margin-bottom:0.25rem;">{{ team.name }}</h1>
-    <p style="margin-top:0;">Season {{ league.current_season }}</p>
+    <p style="margin-top:0;">
+      Season {{ league.current_season }}
+      {% if team.website_url %}
+        &middot; <a href="{{ team.website_url }}" target="_blank" rel="noopener noreferrer">Club website &#x2197;</a>
+      {% endif %}
+    </p>
   </div>
 
   {% if team_season %}

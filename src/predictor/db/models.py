@@ -120,6 +120,10 @@ class Team(Base):
     short_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     """ID used by the upstream data source (e.g. football-data.org team ID)."""
+    crest_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    """URL to the team's badge/crest image."""
+    website_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    """URL to the club's official website."""
 
     # Relationships
     league: Mapped[League] = relationship("League", back_populates="teams")
@@ -159,6 +163,8 @@ class Match(Base):
     status: Mapped[MatchStatus] = mapped_column(
         Enum(MatchStatus), nullable=False, default=MatchStatus.SCHEDULED
     )
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    """Upstream fixture identifier for deduplication (e.g. NPL API ``_id``)."""
     played_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

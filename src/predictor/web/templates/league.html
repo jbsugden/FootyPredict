@@ -9,7 +9,7 @@
 </hgroup>
 
 <!-- Re-run prediction button (HTMX POST to API, admin key required) -->
-<div x-data="{ apiKey: '', loading: false, message: '' }">
+<div x-data="{ apiKey: 'change_me_to_a_strong_random_secret', loading: false, message: '' }">
   <details>
     <summary role="button" class="outline secondary" style="display:inline-block">
       Re-run Prediction
@@ -46,6 +46,28 @@
 </div>
 
 <hr />
+
+{% if fixture_completeness and fixture_completeness.missing_count > 0 %}
+<article role="alert" style="border-left:4px solid var(--pico-del-color, #c62828); padding:1rem; margin-bottom:1.5rem;">
+  <strong>&#9888; Incomplete fixture data:</strong>
+  {{ fixture_completeness.missing_count }} of {{ fixture_completeness.expected_total }}
+  fixtures missing from the data source. Predictions may be less accurate for affected teams.
+  <details style="margin-top:0.5rem;">
+    <summary>Show affected teams</summary>
+    <ul>
+      {% for team in fixture_completeness.teams_affected.values() %}
+      <li>{{ team.team_name }} &mdash; {{ team.deficit }} fixture(s) missing</li>
+      {% endfor %}
+    </ul>
+    <p><small>Missing fixtures:</small></p>
+    <ul>
+      {% for f in fixture_completeness.missing_fixtures %}
+      <li><small>{{ f.home_name }} vs {{ f.away_name }}</small></li>
+      {% endfor %}
+    </ul>
+  </details>
+</article>
+{% endif %}
 
 <!-- Two-column layout: current standings (left) | predicted table (right) -->
 <div class="grid">
@@ -186,10 +208,13 @@
               </div>
             </td>
             <td x-text="fix.away_name"></td>
-            <td>
+            <td style="white-space:nowrap;">
               <button class="outline" style="font-size:0.7rem; padding:0.15rem 0.5rem; margin:0;"
                       @click="fix.locked = !fix.locked"
                       x-text="fix.locked ? 'Unlock' : 'Lock'"></button>
+              <button class="outline secondary" style="font-size:0.7rem; padding:0.15rem 0.5rem; margin:0;"
+                      x-show="fix.locked"
+                      @click="fix.locked = false; fix.home_goals = 0; fix.away_goals = 0;">Clear</button>
             </td>
           </tr>
         </template>
@@ -202,6 +227,10 @@
             style="margin:0; width:auto;">
       <span x-show="!loading">Run Scenario</span>
       <span x-show="loading">Simulating&hellip;</span>
+    </button>
+    <button class="outline" @click="clearAll()" :disabled="loading || lockedCount === 0"
+            style="margin:0; width:auto;">
+      Clear All
     </button>
     <small x-show="lockedCount > 0" x-text="lockedCount + ' fixture(s) locked'" style="color:var(--pico-muted-color, #666);"></small>
     <small x-show="error" x-text="error" style="color:var(--fp-loss);"></small>
@@ -260,7 +289,8 @@
         timelineCanvas,
         {{ timeline_data.dates | tojson }},
         {{ timeline_data.teams | tojson }},
-        {{ n_teams }}
+        {{ n_teams }},
+        {{ timeline_data.crests | tojson }}
       );
     }
     {% endif %}
@@ -269,12 +299,17 @@
   {% if prediction and scenario_fixtures != '[]' %}
   function scenarioExplorer() {
     return {
-      fixtures: {{ scenario_fixtures }},
+      fixtures: {{ scenario_fixtures | safe }},
       loading: false,
       results: null,
       error: '',
       get lockedCount() {
         return this.fixtures.filter(f => f.locked).length;
+      },
+      clearAll() {
+        this.fixtures.forEach(f => { f.locked = false; f.home_goals = 0; f.away_goals = 0; });
+        this.results = null;
+        this.error = '';
       },
       async runScenario() {
         this.loading = true;

@@ -67,6 +67,8 @@ class DataImporter:
                 name=row.team.name,
                 short_name=row.team.short_name,
                 external_id=row.team.external_id,
+                crest_url=row.team.crest_url,
+                website_url=row.team.website_url,
             )
             if created:
                 stats["teams_created"] += 1
@@ -106,27 +108,33 @@ class DataImporter:
             name=match_data.home_team.name,
             short_name=match_data.home_team.short_name,
             external_id=match_data.home_team.external_id,
+            crest_url=match_data.home_team.crest_url,
+            website_url=match_data.home_team.website_url,
         )
         away_team, _ = await self._team_repo.get_or_create(
             league_id=league.id,
             name=match_data.away_team.name,
             short_name=match_data.away_team.short_name,
             external_id=match_data.away_team.external_id,
+            crest_url=match_data.away_team.crest_url,
+            website_url=match_data.away_team.website_url,
         )
 
-        await self._match_repo.upsert(
-            {
-                "league_id": league.id,
-                "season": match_data.season,
-                "home_team_id": home_team.id,
-                "away_team_id": away_team.id,
-                "played_at": match_data.played_at,
-                "status": match_data.status,
-                "home_goals": match_data.home_goals,
-                "away_goals": match_data.away_goals,
-                "matchday": match_data.matchday,
-            }
-        )
+        upsert_data = {
+            "league_id": league.id,
+            "season": match_data.season,
+            "home_team_id": home_team.id,
+            "away_team_id": away_team.id,
+            "played_at": match_data.played_at,
+            "status": match_data.status,
+            "home_goals": match_data.home_goals,
+            "away_goals": match_data.away_goals,
+            "matchday": match_data.matchday,
+        }
+        if match_data.external_id:
+            upsert_data["external_id"] = match_data.external_id
+
+        await self._match_repo.upsert(upsert_data)
 
     @staticmethod
     def _validate_match(match_data: MatchData) -> list[str]:

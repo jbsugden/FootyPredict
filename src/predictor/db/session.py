@@ -13,6 +13,7 @@ from typing import Annotated
 
 import structlog
 from fastapi import Depends
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -103,6 +104,13 @@ async def create_all_tables() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add columns that may be missing in existing databases
+        try:
+            await conn.execute(
+                text("ALTER TABLE teams ADD COLUMN website_url VARCHAR(500)")
+            )
+        except Exception:
+            pass  # Column already exists
     logger.info("database_tables_created")
 
 

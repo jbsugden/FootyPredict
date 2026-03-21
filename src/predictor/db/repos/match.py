@@ -135,9 +135,11 @@ class MatchRepository:
     async def upsert(self, match_data: dict) -> Match:
         """Insert or update a match record.
 
-        Matches are identified by ``(league_id, season, home_team_id,
-        away_team_id, played_at)`` to avoid creating duplicates on
-        re-import.
+        When ``external_id`` is provided the match is looked up by
+        ``(league_id, external_id)`` first, which correctly handles
+        rescheduled fixtures whose ``played_at`` date has changed.
+        Falls back to ``(league_id, season, home_team_id, away_team_id,
+        played_at)`` for sources that do not supply an external ID.
 
         Args:
             match_data: Dictionary with keys corresponding to :class:`Match`
@@ -148,27 +150,41 @@ class MatchRepository:
         Returns:
             The persisted :class:`Match` instance (not yet committed).
         """
-        # Try to find an existing record first
-        stmt = select(Match).where(
-            Match.league_id == match_data["league_id"],
-            Match.season == match_data["season"],
-            Match.home_team_id == match_data["home_team_id"],
-            Match.away_team_id == match_data["away_team_id"],
-            Match.played_at == match_data["played_at"],
-        )
-        result = await self._session.execute(stmt)
-        existing = result.scalars().first()
+        existing: Match | None = None
+
+        # Prefer external_id lookup (handles rescheduled fixtures)
+        ext_id = match_data.get("external_id")
+        if ext_id:
+            stmt = select(Match).where(
+                Match.league_id == match_data["league_id"],
+                Match.external_id == ext_id,
+            )
+            result = await self._session.execute(stmt)
+            existing = result.scalars().first()
+
+        # Fallback: match by teams + date
+        if existing is None:
+            stmt = select(Match).where(
+                Match.league_id == match_data["league_id"],
+                Match.season == match_data["season"],
+                Match.home_team_id == match_data["home_team_id"],
+                Match.away_team_id == match_data["away_team_id"],
+                Match.played_at == match_data["played_at"],
+            )
+            result = await self._session.execute(stmt)
+            existing = result.scalars().first()
 
         if existing is not None:
-            # Update mutable fields
+            # Update mutable fields (including played_at for rescheduled matches)
             for field in (
                 "home_goals",
                 "away_goals",
                 "status",
                 "matchday",
-                "updated_at",
+                "played_at",
+                "external_id",
             ):
-                if field in match_data:
+                if field in match_data and match_data[field] is not None:
                     setattr(existing, field, match_data[field])
             existing.updated_at = datetime.now(tz=timezone.utc)
             return existing

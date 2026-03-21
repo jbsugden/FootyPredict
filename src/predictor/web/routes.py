@@ -119,15 +119,19 @@ async def league_detail(
         timeline_data = {
             "dates": [p.generated_at.strftime("%d %b") for p in chronological],
             "teams": {},
+            "crests": {},
         }
         for pred in chronological:
             for tid, data in pred.results.items():
                 if tid.startswith("__"):
                     continue
-                name = team_map.get(tid, None) and team_map[tid].name or tid
+                team = team_map.get(tid)
+                name = team.name if team else tid
                 timeline_data["teams"].setdefault(name, []).append(
                     data.get("mean_pos")
                 )
+                if team and team.crest_url and name not in timeline_data["crests"]:
+                    timeline_data["crests"][name] = team.crest_url
 
     predicted_table = []
     n_teams = len(teams)
@@ -151,8 +155,10 @@ async def league_detail(
 
     # Key matches from significance analysis
     key_matches = []
+    fixture_completeness = {}
     if prediction and "__meta__" in prediction.results:
         key_matches = prediction.results["__meta__"].get("key_matches", [])
+        fixture_completeness = prediction.results["__meta__"].get("fixture_completeness", {})
 
     # Scheduled matches for scenario explorer
     match_repo = MatchRepository(db)
@@ -188,6 +194,7 @@ async def league_detail(
             "zone_classes": zone_classes,
             "timeline_data": timeline_data,
             "key_matches": key_matches,
+            "fixture_completeness": fixture_completeness,
             "scenario_fixtures": scenario_fixtures,
             "nav_leagues": nav_leagues,
         },

@@ -10,11 +10,51 @@
 
 <hr />
 
+<!-- Dev: quick sync + predict buttons -->
+<div x-data="{ syncState: 'idle', predictState: 'idle', syncMsg: '', predictMsg: '' }" style="margin-bottom:1.5rem;">
+  <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+    <button
+      @click="
+        syncState = 'loading'; syncMsg = '';
+        fetch('/admin/sync', { method: 'POST' })
+          .then(r => r.json())
+          .then(d => { syncMsg = d.message || JSON.stringify(d); syncState = 'done'; })
+          .catch(e => { syncMsg = 'Error: ' + e; syncState = 'done'; });
+      "
+      :disabled="syncState === 'loading'"
+      :aria-busy="syncState === 'loading'"
+      class="outline"
+      style="width:auto; margin:0;"
+    >
+      <span x-show="syncState !== 'loading'">Sync Data</span>
+      <span x-show="syncState === 'loading'">Syncing&hellip;</span>
+    </button>
+    <button
+      @click="
+        predictState = 'loading'; predictMsg = '';
+        const ids = Array.from(document.querySelectorAll('[data-league-id]')).map(el => el.dataset.leagueId);
+        Promise.all(ids.map(id => fetch('/api/predictions/' + id + '/run', { method: 'POST' }).then(r => r.json())))
+          .then(results => { predictMsg = 'Predictions queued for ' + ids.length + ' league(s)'; predictState = 'done'; })
+          .catch(e => { predictMsg = 'Error: ' + e; predictState = 'done'; });
+      "
+      :disabled="predictState === 'loading'"
+      :aria-busy="predictState === 'loading'"
+      class="outline"
+      style="width:auto; margin:0;"
+    >
+      <span x-show="predictState !== 'loading'">Run All Predictions</span>
+      <span x-show="predictState === 'loading'">Running&hellip;</span>
+    </button>
+  </div>
+  <small x-show="syncMsg" x-text="syncMsg" style="display:block; margin-top:0.5rem; color:var(--pico-muted-color, #666);"></small>
+  <small x-show="predictMsg" x-text="predictMsg" style="display:block; margin-top:0.5rem; color:var(--pico-muted-color, #666);"></small>
+</div>
+
 {% if leagues %}
   <h2>Tracked Leagues</h2>
   <div class="grid">
     {% for league in leagues %}
-    <article>
+    <article data-league-id="{{ league.id }}">
       <header>
         <strong>Tier {{ league.tier }}</strong>
       </header>

@@ -31,6 +31,7 @@ from predictor.db.models import MatchStatus
 logger = structlog.get_logger(__name__)
 
 _BASE_URL = "https://api.thenpl.co.uk"
+_LOGO_BASE_URL = "https://www.thenpl.co.uk/img/"
 _TENANT_ID = "npl"
 _PAGE_SIZE = 100
 _REQUEST_DELAY_SECONDS = 1.0
@@ -54,6 +55,19 @@ _STATUS_MAP: dict[str, MatchStatus] = {
 }
 
 
+def _build_crest_url(club: dict) -> str | None:
+    """Extract and build full crest URL from an NPL API club object."""
+    logo = club.get("logo")
+    if logo:
+        return _LOGO_BASE_URL + logo
+    return None
+
+
+def _extract_website_url(club: dict) -> str | None:
+    """Extract the club website URL from an NPL API club object."""
+    return club.get("website") or club.get("url") or None
+
+
 class FAFullTimeScraper:
     """Fetches NPL standings and fixtures from the thenpl.co.uk JSON API.
 
@@ -69,6 +83,7 @@ class FAFullTimeScraper:
 
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
         self._owns_client = client is None
+        self._match_cache: dict[str, list[dict]] = {}
         self._client = client or httpx.AsyncClient(
             base_url=_BASE_URL,
             headers={
@@ -95,6 +110,9 @@ class FAFullTimeScraper:
         Returns:
             List of raw match dicts from the API.
         """
+        if league_code in self._match_cache:
+            return self._match_cache[league_code]
+
         competition_id = COMPETITION_ID_MAP.get(league_code, league_code)
         all_matches: list[dict] = []
         page = 1
@@ -137,6 +155,7 @@ class FAFullTimeScraper:
                 unique.append(m)
 
         logger.info("npl_matches_fetched", league=league_code, count=len(unique))
+        self._match_cache[league_code] = unique
         return unique
 
     async def fetch_standings(
@@ -163,10 +182,18 @@ class FAFullTimeScraper:
             "played": 0, "won": 0, "drawn": 0, "lost": 0,
             "goals_for": 0, "goals_against": 0, "points": 0,
         })
+        crest_map: dict[str, str | None] = {}
+        website_map: dict[str, str | None] = {}
 
         for m in finished:
             home_name = m["homeTeam"]["club"]["fullName"]
             away_name = m["awayTeam"]["club"]["fullName"]
+            if home_name not in crest_map:
+                crest_map[home_name] = _build_crest_url(m["homeTeam"]["club"])
+                website_map[home_name] = _extract_website_url(m["homeTeam"]["club"])
+            if away_name not in crest_map:
+                crest_map[away_name] = _build_crest_url(m["awayTeam"]["club"])
+                website_map[away_name] = _extract_website_url(m["awayTeam"]["club"])
             score = m.get("score", {}).get("current", {})
             hg = score.get("home", 0) or 0
             ag = score.get("away", 0) or 0
@@ -204,7 +231,7 @@ class FAFullTimeScraper:
 
         rows = [
             StandingRow(
-                team=TeamData(name=name),
+                team=TeamData(name=name, crest_url=crest_map.get(name), website_url=website_map.get(name)),
                 position=idx + 1,
                 played=s["played"],
                 won=s["won"],
@@ -297,9 +324,13 @@ class FAFullTimeScraper:
             home_team=TeamData(
                 name=home_name,
                 external_id=raw.get("_id"),
+                crest_url=_build_crest_url(raw["homeTeam"]["club"]),
+                website_url=_extract_website_url(raw["homeTeam"]["club"]),
             ),
             away_team=TeamData(
                 name=away_name,
+                crest_url=_build_crest_url(raw["awayTeam"]["club"]),
+                website_url=_extract_website_url(raw["awayTeam"]["club"]),
             ),
             played_at=played_at,
             status=match_status,

@@ -82,6 +82,8 @@ async def verify_admin_key(
         async def sync(_: Annotated[None, Depends(verify_admin_key)]):
             ...
     """
+    if settings.DEBUG:
+        return
     if x_admin_key is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

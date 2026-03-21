@@ -109,6 +109,8 @@ async def daily_predict() -> None:
     from predictor.db.models import League
     from predictor.db.repos.prediction import PredictionRepository
     from predictor.db.session import get_session_factory
+    from predictor.db.repos.match import MatchRepository
+    from predictor.engine.completeness import check_fixture_completeness
     from predictor.engine.pipeline import build_simulation_input, build_team_name_map
     from predictor.engine.significance import rank_fixtures_by_significance
     from predictor.engine.simulator import MonteCarloSimulator
@@ -159,6 +161,26 @@ async def daily_predict() -> None:
                         logger.warning(
                             "significance_computation_failed",
                             league=league.code, error=str(sig_exc),
+                        )
+
+                    # Fixture completeness check
+                    try:
+                        match_repo = MatchRepository(session)
+                        all_matches = await match_repo.get_by_league_season(
+                            league.id, league.current_season
+                        )
+                        try:
+                            team_names  # noqa: B018 — reuse from significance block
+                        except NameError:
+                            team_names = await build_team_name_map(session, league.id)
+                        completeness = check_fixture_completeness(
+                            sim_input.team_ids, all_matches, team_names,
+                        )
+                        results_dict.setdefault("__meta__", {})["fixture_completeness"] = completeness
+                    except Exception as comp_exc:
+                        logger.warning(
+                            "completeness_check_failed",
+                            league=league.code, error=str(comp_exc),
                         )
 
                     pred_repo = PredictionRepository(session)

@@ -1,7 +1,6 @@
 <!--
   Partial: standings_table.html
-  Renders the current league standings table.
-  Can be returned as a standalone HTMX fragment from GET /api/leagues/{id}/table.
+  Renders the current league standings table (compact view).
 
   Context variables expected:
     standings  — list of TeamSeason objects sorted by position
@@ -10,19 +9,17 @@
 
 {% if standings %}
 <div class="table-responsive">
-  <table role="grid" class="standings-table">
+  <table role="grid" class="standings-table" style="font-size:0.85rem;">
     <thead>
       <tr>
         <th scope="col" title="Position">#</th>
         <th scope="col">Team</th>
         <th scope="col" title="Played">P</th>
-        <th scope="col" title="Won">W</th>
-        <th scope="col" title="Drawn">D</th>
-        <th scope="col" title="Lost">L</th>
-        <th scope="col" title="Goals For">GF</th>
-        <th scope="col" title="Goals Against">GA</th>
         <th scope="col" title="Goal Difference">GD</th>
         <th scope="col" title="Points">Pts</th>
+        {% if n_teams is defined and n_teams > 0 %}
+        <th scope="col" title="Remaining fixtures">Rem</th>
+        {% endif %}
         <th scope="col" title="Last 5 results">Form</th>
       </tr>
     </thead>
@@ -41,13 +38,11 @@
           </strong>
         </td>
         <td>{{ ts.played }}</td>
-        <td>{{ ts.won }}</td>
-        <td>{{ ts.drawn }}</td>
-        <td>{{ ts.lost }}</td>
-        <td>{{ ts.goals_for }}</td>
-        <td>{{ ts.goals_against }}</td>
         <td>{{ ts.goals_for - ts.goals_against }}</td>
         <td><strong>{{ ts.points }}</strong></td>
+        {% if n_teams is defined and n_teams > 0 %}
+        <td>{{ (n_teams - 1) * 2 - ts.played }}</td>
+        {% endif %}
         <td class="form-cell">
           {% for result in ts.form %}
             <span class="form-badge form-{{ result|upper }}">{{ result|upper }}</span>

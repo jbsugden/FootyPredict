@@ -80,6 +80,8 @@ class TeamRepository:
         name: str,
         short_name: str | None = None,
         external_id: str | None = None,
+        crest_url: str | None = None,
+        website_url: str | None = None,
     ) -> tuple[Team, bool]:
         """Fetch an existing team or create a new one.
 
@@ -101,6 +103,10 @@ class TeamRepository:
         if external_id is not None:
             existing = await self.get_by_external_id(league_id, external_id)
             if existing is not None:
+                if crest_url and existing.crest_url != crest_url:
+                    existing.crest_url = crest_url
+                if website_url and existing.website_url != website_url:
+                    existing.website_url = website_url
                 return existing, False
 
         # 2. Fall back to name match
@@ -111,6 +117,10 @@ class TeamRepository:
         result = await self._session.execute(stmt)
         existing = result.scalar_one_or_none()
         if existing is not None:
+            if crest_url and existing.crest_url != crest_url:
+                existing.crest_url = crest_url
+            if website_url and existing.website_url != website_url:
+                existing.website_url = website_url
             return existing, False
 
         # 3. Create new team
@@ -119,6 +129,8 @@ class TeamRepository:
             name=name,
             short_name=short_name,
             external_id=external_id,
+            crest_url=crest_url,
+            website_url=website_url,
         )
         self._session.add(team)
         await self._session.flush()  # populate team.id without full commit
